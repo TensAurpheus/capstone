@@ -43,6 +43,8 @@ def split_scale(df, feature_cols, target_col='close', test_size=0.2, val_size=0.
     
     Returns:
         train_df, val_df, test_df: DataFrames with features + target
+        timestamps: dict with start timestamps for train, test, val sets
+        scaler: fitted MinMaxScaler object
     """
     df = df.copy()
 
@@ -69,12 +71,12 @@ def split_scale(df, feature_cols, target_col='close', test_size=0.2, val_size=0.
 
     timestamps = {'train_start': df.index[0], 'test_start': df.index[test_start], 'val_start': df.index[val_start], 'val_end': df.index[-1]}
 
-    return train_df, val_df, test_df, timestamps
+    return train_df, val_df, test_df, timestamps, scaler if scale else None
 
 if __name__ == "__main__":
     df = pd.read_parquet("data/BTC_merged_15m_8h.parquet")
     feature_cols = df.columns
-    train_df, val_df, test_df, timestamps = split_scale(
+    train_df, val_df, test_df, timestamps, scaler = split_scale(
         df, feature_cols=feature_cols, target_col='close', scale=True)
     print(train_df.tail())
     print(timestamps)
