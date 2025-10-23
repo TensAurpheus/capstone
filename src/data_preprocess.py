@@ -28,7 +28,7 @@ class CryptoDataset(Dataset):
 
     def __getitem__(self, idx):
         X = self.features[idx: idx + self.window_size]
-        y = self.targets[idx: idx + self.window_size]
+        y = self.targets[idx + self.window_size - 1]
         return X, y
     
 
