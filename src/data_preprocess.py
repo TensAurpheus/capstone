@@ -48,8 +48,8 @@ def split_scale(df, feature_cols, target_col='close', test_size=0.2, val_size=0.
     """
     df = df.copy()
 
-    # Create directional target: 1 if next close > current, -1 if lower
-    df['target'] = np.where(df[target_col].shift(-1) > df[target_col], 1, -1)
+    # Create target: return over the last period, in %
+    df['target'] = (df[target_col]/df[target_col].shift(-1) - 1)*100
 
     # Drop last row (target is NaN)
     df = df[:-1]
