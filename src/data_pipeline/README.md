@@ -53,13 +53,9 @@ File: src/data_pipeline/features/patterns.py
 
 Detects market structure and candlestick-based patterns using TA-Lib and custom logic:
 - Candlestick: Engulfing, Harami, Hammer, Inverted Hammer
-
 - Fractals & Levels: Detects local highs/lows and strong reversal levels
-
 - Fair Value Gaps (FVG): Identifies price imbalances
-
 - Premium / Discount Arrays (PDA): Defines price relative to equilibrium
-
 - Breakouts: Detects bullish/bearish breakouts confirmed by volume
 
 Output:
