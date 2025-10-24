@@ -10,12 +10,9 @@ Each stage builds upon the previous one, progressively enriching the dataset.
 ## Data Fetching & Primary Preprocessing
 
 File: src/data_pipeline/data/data_preprocess.py
-
-Fetches OHLCV data from Binance Spot or Futures via ccxt.
-
-Optionally fetches funding rate (for USDT-M futures).
-
-Merges OHLCV + funding data and performs basic cleaning.
+- Fetches OHLCV data from Binance Spot or Futures via ccxt.
+- Optionally fetches funding rate (for USDT-M futures).
+- Merges OHLCV + funding data and performs basic cleaning.
 
 Saves as:
 
@@ -24,12 +21,9 @@ data/raw/{symbol}_{timeframe}_{market}_features.parquet
 ## Data Cleaning & Validation
 
 File: src/data_pipeline/data/preprocessing.py
-
-Ensures consistent timestamps (UTC).
-
-Removes duplicates, NaNs, and irregular time intervals.
-
-Validates numeric types and prepares for further processing.
+- Ensures consistent timestamps (UTC).
+- Removes duplicates, NaNs, and irregular time intervals.
+- Validates numeric types and prepares for further processing.
 
 Output:
 
@@ -39,17 +33,15 @@ data/processed/{symbol}_{timeframe}_features.parquet
 
 File: src/data_pipeline/features/technical.py
 
-Adds a rich set of technical analysis indicators via pandas_ta
-:
+Adds a rich set of technical analysis indicators via pandas_ta:
 
-Category	Indicators
-- Trend	EMA (20, 50, 200), MACD, ADX
-- Momentum	RSI(14)
-- Volatility	Bollinger Bands, ATR(14)
-- Volume	MFI(14), Volume Z-score
-- Price Structure	VWAP, VWAP Distance, Rolling Std
-- Returns	Log Returns (15m, 1h, 4h, 1d)
-- Session Info	Trading sessions (Asia, London, NY), Session VWAP
+- Trend:	EMA (20, 50, 200), MACD, ADX
+- Momentum:	RSI(14)
+- Volatility:	Bollinger Bands, ATR(14)
+- Volume:	MFI(14), Volume Z-score
+- Price Structure:	VWAP, VWAP Distance, Rolling Std
+- Returns:	Log Returns (15m, 1h, 4h, 1d)
+- Session Info:	Trading sessions (Asia, London, NY), Session VWAP
 
 Output:
 
@@ -60,7 +52,6 @@ data/processed/{symbol}_{timeframe}_technical.parquet
 File: src/data_pipeline/features/patterns.py
 
 Detects market structure and candlestick-based patterns using TA-Lib and custom logic:
-
 - Candlestick: Engulfing, Harami, Hammer, Inverted Hammer
 
 - Fractals & Levels: Detects local highs/lows and strong reversal levels
@@ -82,17 +73,11 @@ File: src/data_pipeline/data/data_postprocess_torch.py
 Transforms processed data into PyTorch-ready datasets for training, validation, and testing.
 
 Features:
-
 - Converts categorical columns (session, pda) into one-hot encoding.
-
 - Drops non-numeric columns and fills missing values.
-
 - Splits data into Train/Validation/Test subsets.
-
 - Scales features via MinMaxScaler.
-
 - Creates windowed sequences for time-series learning.
-
 - Generates .pt datasets and metadata in JSON.
 
 Output directory:
