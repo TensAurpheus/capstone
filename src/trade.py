@@ -91,7 +91,7 @@ class TradingStrategy:
     def backtest(
         self,
         predictions: Sequence[float],
-        returns: Sequence[float],
+        prices: Sequence[float],
         timestamps: Sequence[object] | None = None,
         transaction_cost: float = 0.001,
     ) -> dict:
@@ -99,7 +99,7 @@ class TradingStrategy:
 
         Args:
             predictions: Sequence of model predictions or scores.
-            returns: Sequence of realized returns for each period (as decimals).
+            prices: Sequence of realized prices for each period.
             timestamps: Optional sequence of labels associated with each period.
             transaction_cost: Proportional transaction cost applied when
                 entering or exiting a position.
@@ -109,16 +109,16 @@ class TradingStrategy:
         """
 
         predictions_arr = np.asarray(predictions, dtype=float)
-        returns_arr = np.asarray(returns, dtype=float)
-        if predictions_arr.shape[0] != returns_arr.shape[0]:
-            raise ValueError("Predictions and returns must have the same length.")
+        prices_arr = np.asarray(prices, dtype=float)
+        if predictions_arr.shape[0] != prices_arr.shape[0]:
+            raise ValueError("Predictions and prices must have the same length.")
 
         if timestamps is None:
             timestamps_arr = np.arange(len(predictions_arr))
         else:
             timestamps_arr = np.asarray(timestamps)
             if timestamps_arr.shape[0] != predictions_arr.shape[0]:
-                raise ValueError("Timestamps must align with predictions/returns.")
+                raise ValueError("Timestamps must align with predictions/prices.")
 
         self.reset()
         self.predictions = predictions_arr
@@ -129,8 +129,10 @@ class TradingStrategy:
         current_trade: dict | None = None
         trade_records: List[TradeRecord] = []
 
-        for i, (raw_signal, period_return, timestamp) in enumerate(
-            zip(self.signals, returns_arr, timestamps_arr)
+        previous_price = float(prices_arr[0]) if prices_arr.size else 0.0
+
+        for i, (raw_signal, price, timestamp) in enumerate(
+            zip(self.signals, prices_arr, timestamps_arr)
         ):
             signal = int(raw_signal)
             prev_equity = equity
@@ -153,8 +155,11 @@ class TradingStrategy:
                     }
                     current_position = signal
 
-            if current_position != 0:
+            if current_position != 0 and i > 0:
+                period_return = price / previous_price - 1 if previous_price else 0.0
                 equity *= (1 + current_position * period_return * self.position_size)
+
+            previous_price = float(price)
 
             next_signal = self.signals[i + 1] if i < len(self.signals) - 1 else 0
             if current_position != 0 and next_signal != current_position:
