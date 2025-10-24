@@ -1,8 +1,6 @@
 
 """Trading utilities for running strategy backtests on pre-generated predictions."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import List, Sequence
 
@@ -40,14 +38,16 @@ class TradingStrategy:
         threshold: float = 0.5,
         neutral_band: float = 0.1,
         position_size: float = 1.0,
-        initial_equity: float = 1.0,
+        initial_equity: float = 1000.0,
         periods_per_year: int = 365 * 24,
+        
     ) -> None:
         self.threshold = threshold
         self.neutral_band = neutral_band
         self.position_size = position_size
         self.initial_equity = initial_equity
         self.periods_per_year = periods_per_year
+        
 
         self.signals: np.ndarray = np.array([])
         self.predictions: np.ndarray = np.array([])
@@ -93,7 +93,8 @@ class TradingStrategy:
         predictions: Sequence[float],
         prices: Sequence[float],
         timestamps: Sequence[object] | None = None,
-        transaction_cost: float = 0.001,
+        transaction_cost: float = 0.000,
+        long_only: bool = False,
     ) -> dict:
         """Run a backtest using pre-generated prediction outputs.
 
@@ -103,6 +104,7 @@ class TradingStrategy:
             timestamps: Optional sequence of labels associated with each period.
             transaction_cost: Proportional transaction cost applied when
                 entering or exiting a position.
+            long_only: If True, only long positions are allowed.
 
         Returns:
             Dictionary of performance metrics along with the trade log table.
@@ -136,17 +138,20 @@ class TradingStrategy:
         ):
             signal = int(raw_signal)
             prev_equity = equity
+            last_candle = i == len(self.signals) - 1
 
-            if signal != current_position:
+            if signal != current_position or last_candle:
                 if current_position != 0 and current_trade is not None:
-                    equity *= (1 - transaction_cost)
+                    period_return = price / previous_price - 1 if previous_price else 0.0
+                    equity *= (1 + current_position *
+                               period_return * self.position_size - transaction_cost)
                     trade_records.append(
                         self._close_trade(current_trade, timestamp, equity)
                     )
                     current_trade = None
-                current_position = 0
+                    current_position = 0
 
-                if signal != 0:
+                if not last_candle and ((signal == 1) or (signal == -1 and not long_only)):
                     equity *= (1 - transaction_cost)
                     current_trade = {
                         "open_date": timestamp,
@@ -154,28 +159,29 @@ class TradingStrategy:
                         "entry_equity": equity,
                     }
                     current_position = signal
-
-            if current_position != 0 and i > 0:
+            
+            if current_position != 0 and i > 0 and timestamp != current_trade["open_date"]:
                 period_return = price / previous_price - 1 if previous_price else 0.0
                 equity *= (1 + current_position * period_return * self.position_size)
 
             previous_price = float(price)
 
-            next_signal = self.signals[i + 1] if i < len(self.signals) - 1 else 0
-            if current_position != 0 and next_signal != current_position:
-                equity *= (1 - transaction_cost)
-                if current_trade is not None:
-                    trade_records.append(
-                        self._close_trade(current_trade, timestamp, equity)
-                    )
-                    current_trade = None
-                current_position = 0
+            # next_signal = self.signals[i + 1] if i < len(self.signals) - 1 else 0
+            # if current_position != 0 and next_signal != current_position:
+            #     equity *= (1 - transaction_cost)
+            #     if current_trade is not None:
+            #         trade_records.append(
+            #             self._close_trade(current_trade, timestamp, equity)
+            #         )
+            #         current_trade = None
+            #     current_position = 0
 
             step_return = (equity - prev_equity) / prev_equity if prev_equity else 0.0
             self.returns.append(step_return)
             self.equity_curve.append(equity)
             self.positions.append(signal)
 
+        
         if trade_records:
             self.trade_log = pd.DataFrame(
                 [record.__dict__ for record in trade_records], columns=TRADE_COLUMNS
@@ -241,3 +247,17 @@ class TradingStrategy:
         }
 
         return metrics
+
+
+
+if __name__ == "__main__":
+    
+    prices = np.array([100, 110, 100, 90])
+    strategy = TradingStrategy()
+    predictions = np.array([0.7, 0.5, 0.3, 0.3])
+    
+    metrics = strategy.backtest(predictions, prices, long_only=True)
+    print(metrics)
+    print(strategy.equity_curve)
+    print(strategy.trade_log)
+    print(strategy.signals)
