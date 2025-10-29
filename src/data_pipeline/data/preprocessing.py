@@ -8,7 +8,7 @@ Performs secondary preprocessing on raw OHLCV + funding data:
  - Optionally recalculates log returns and directions
 
 Usage:
-  python src/data_pipeline/data/preprocessing.py --input data/raw/BTC_USDT_15m_futures_features.parquet --output data/processed/BTC_USDT_15m_features.parquet
+  python src/data_pipeline/data/preprocessing.py --input data/raw/BTC_USDT_15m_futures_raw.parquet --output data/processed/BTC_USDT_15m_features.parquet
 """
 
 import argparse

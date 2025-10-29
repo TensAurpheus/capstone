@@ -195,7 +195,7 @@ def main():
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    out_path = outdir / f"{args.symbol.replace('/', '_')}_{args.timeframe}_{args.market}_features.parquet"
+    out_path = outdir / f"{args.symbol.replace('/', '_')}_{args.timeframe}_{args.market}_raw.parquet"
     df_prep.to_parquet(out_path, index=False)
 
     print(f"[OK] Saved -> {out_path}")

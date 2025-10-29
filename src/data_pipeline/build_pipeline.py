@@ -52,7 +52,7 @@ def main():
 
     # Step 2: Pre-clean data
     if ask_step("Run preprocessing.py (data cleaning and QA)"):
-        raw_path = f"data/raw/{symbol_clean}_{args.timeframe}_{args.market}_features.parquet"
+        raw_path = f"data/raw/{symbol_clean}_{args.timeframe}_{args.market}_raw.parquet"
         processed_features_path = f"data/processed/{symbol_clean}_{args.timeframe}_features.parquet"
 
         run_script("src/data_pipeline/data/preprocessing.py", [
@@ -74,31 +74,25 @@ def main():
             "--output", f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet"
         ])
 
-    # Step 5: PyTorch-ready dataset
-    if ask_step("Create PyTorch dataset (data_postprocess_torch.py)"):
-        stage = input("Select data stage [raw/features/technical/patterns] (default=patterns): ").strip() or "patterns"
-        window = input("Enter window size [64/128/256] (default=64): ").strip() or "64"
-        target = input("Enter target column [close/log_return_15m] (default=close): ").strip() or "close"
+    # Step 5: Final numeric-only dataset for modeling (MANDATORY)
+    print("\nStep: Running data_postprocess.py (final numeric dataset, mandatory)")
+    run_script("src/data_pipeline/data/data_postprocess.py", [
+        "--symbol", args.symbol,
+        "--market", args.market,
+        "--timeframe", args.timeframe
+    ])
 
-        run_script("src/data_pipeline/data/data_postprocess_torch.py", [
-            "--symbol", args.symbol,
-            "--market", args.market,
-            "--timeframe", args.timeframe,
-            "--stage", stage,
-            "--window", window,
-            "--target", target
-        ])
-
+    # === Summary ===
     print("\n=== FULL PIPELINE ENDED ===")
-    print("Saved datasets:")
-    print(f" ├─ data/raw/{symbol_clean}_{args.timeframe}_{args.market}_features.parquet")
-    print(f" ├─ data/processed/{symbol_clean}_{args.timeframe}_features.parquet")
-    print(f" ├─ data/processed/{symbol_clean}_{args.timeframe}_technical.parquet")
-    print(f" └─ data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet")
+    print("✅ Final saved datasets:")
+    print(f" ├─ data/raw/{symbol_clean}_{args.timeframe}_{args.market}_raw.parquet")
+    print(f" └─ data/processed/{symbol_clean}_{args.timeframe}_numeric.parquet")
+    print("🧱 All intermediate files have been automatically removed.")
 
 
 if __name__ == "__main__":
     main()
+
 
 
 
