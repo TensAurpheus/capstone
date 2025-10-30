@@ -87,7 +87,7 @@ def triple_barrier_label(df, close='close', high='high', low='low', volatility='
         out['b_up'] = b_up
         out['b_dn'] = b_dn
 
-    return out
+    return out.iloc[:n - hold]
 
 
 def min_max_label(df, close='close', high='high', low='low', horizon=16):
@@ -103,11 +103,11 @@ def min_max_label(df, close='close', high='high', low='low', horizon=16):
     y_low = np.zeros(n, dtype=float)
 
     for i in range(n - horizon):
-        y_high[i] = np.max(highs[i+1:i+1+horizon])
-        y_low[i] = np.min(lows[i+1:i+1+horizon])
+        y_high[i] = np.max(np.append(highs[i+1:i+1+horizon], closes[i]))
+        y_low[i] = np.min(np.append(lows[i+1:i+1+horizon], closes[i]))
 
     out = df.copy()
     out['y_high'] = np.log(y_high/closes)
-    out['y_low'] = np.log(y_low/closes)
+    out['y_low'] = -np.log(y_low/closes)
 
-    return out
+    return out.iloc[:n - horizon]

@@ -18,22 +18,24 @@ if __name__ == "__main__":
     print(df.info())
     
     # df_labeled = triple_barrier_label(df, ku=3, kd=1, hold=5, debug=False)
-    df_labeled = min_max_label(df, horizon=5)
-    print(df_labeled.head(50))
+    df_labeled = min_max_label(df, horizon=48)
+    print(df_labeled.tail(50))
     
     target = ['y_high', 'y_low']
     # target = ['y']
-    dataset = CryptoDataset(df_labeled, window_size=5,
-                            target=target)
+    # dataset = CryptoDataset(df_labeled, window_size=5,
+                            # target=target)
     
-    print(dataset[0])
-    print(dataset[0][0].shape)  # Features shape
+    # print(dataset[0])
+    # print(dataset[0][0].shape)  # Features shape
 
-    df_train, df_test, df_val, scaler = split_scale(
-        df_labeled, target_cols=target, scale=True)
+    # df_train, df_test, df_val, scaler = split_scale(
+    #     df_labeled, target_cols=target, scale=True)
     
-    print(df_train.info())
-    print(df_train.head(20))
-    print(df_labeled[df_labeled['y_low'] >= 0])
+    # print(df_train.info())
+    # print(df_train.head(20))
+    print(df_labeled.loc[df_labeled['y_high'].idxmin():].head(20)
+          )
+    # print(df.tail(30))
 
     
