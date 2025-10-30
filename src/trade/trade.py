@@ -18,6 +18,9 @@ TRADE_COLUMNS = [
     "entry_price",
     "exit_price",
     "exit_reason",
+    "entry_price",
+    "exit_price",
+    "exit_reason",
 ]
 
 
@@ -56,6 +59,7 @@ class PredictedRangeConfig:
 
 
 class TradingStrategy:
+    """Long-only strategy supporting multiple signal generation modes."""
     """Long-only strategy supporting multiple signal generation modes."""
 
     def __init__(
@@ -151,6 +155,8 @@ class TradingStrategy:
         self,
         predictions: Sequence[float] | pd.DataFrame,
         prices: Sequence[float] | pd.DataFrame,
+        predictions: Sequence[float] | pd.DataFrame,
+        prices: Sequence[float] | pd.DataFrame,
         timestamps: Sequence[object] | None = None,
         probability_column: str = "TP_prob",
         log_up_column: str = "y_up",
@@ -180,6 +186,7 @@ class TradingStrategy:
 
         if timestamps is None:
             timestamps_arr = np.arange(len(close_prices))
+            timestamps_arr = np.arange(len(close_prices))
         else:
             timestamps_arr = np.asarray(timestamps)
             if timestamps_arr.shape[0] != close_prices.shape[0]:
@@ -188,6 +195,9 @@ class TradingStrategy:
 
         high_prices = prices["high"].to_numpy(dtype=float)
         low_prices = prices["low"].to_numpy(dtype=float)
+
+        high_prices = price_frame["high"].to_numpy(dtype=float)
+        low_prices = price_frame["low"].to_numpy(dtype=float)
 
         self.reset()
         trade_records: List[TradeRecord] = []
@@ -301,6 +311,7 @@ class TradingStrategy:
             open_date=trade["open_date"],
             close_date=close_timestamp,
             side="long",
+            side="long",
             pnl=pnl,
             return_pct=return_pct,
             total_equity=equity,
@@ -309,6 +320,8 @@ class TradingStrategy:
             exit_reason=exit_reason,
             position_size=position_size
         )
+
+        return equity, record
 
         return equity, record
 
