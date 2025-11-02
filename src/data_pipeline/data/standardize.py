@@ -38,7 +38,7 @@ def standardize_features(df: pd.DataFrame, scaler_path: str) -> pd.DataFrame:
     # --- Save fitted scaler ---
     Path(scaler_path).parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(scaler, scaler_path)
-    print(f"[OK] Saved scaler → {scaler_path}")
+    print(f"[OK] Saved scaler to {scaler_path}")
 
     # --- Diagnostic summary ---
     summary = df[cont_cols].describe().T[["mean", "std"]]
@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--symbol", type=str, required=True, help="Symbol name (e.g. BTC/USDT)")
     args = parser.parse_args()
 
-    print(f"[INFO] Loading dataset → {args.input}")
+    print(f"[INFO] Loading dataset -> {args.input}")
     df = pd.read_parquet(args.input)
     print(f"[INFO] Loaded {len(df):,} rows, {len(df.columns)} columns")
 
@@ -74,7 +74,7 @@ def main():
     # --- Save standardized dataset ---
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     df_std.to_parquet(args.output, index=False)
-    print(f"[OK] Saved standardized dataset → {args.output}")
+    print(f"[OK] Saved standardized dataset -> {args.output}")
     print(f"[COLUMNS] {len(df_std.columns)} features")
 
 
