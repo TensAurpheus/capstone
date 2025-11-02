@@ -3,7 +3,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import List, Optional
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset
 import torch
@@ -19,11 +19,11 @@ class DataScaler:
     across different stages (pipeline, training, inference).
     """
 
-    def __init__(self, path: str = None):
+    def __init__(self, path: Optional[str] = None):
         self.path = path
         self.scaler = None
 
-    def fit(self, df: pd.DataFrame, cols: list):
+    def fit(self, df: pd.DataFrame, cols: List[str]):
         """Fit StandardScaler on specified columns and optionally save."""
         self.scaler = StandardScaler()
         self.scaler.fit(df[cols])
@@ -44,14 +44,14 @@ class DataScaler:
         print(f"[INFO] Loaded StandardScaler from {self.path}")
         return self
 
-    def transform(self, df: pd.DataFrame, cols: list):
+    def transform(self, df: pd.DataFrame, cols: List[str]):
         """Apply transformation using fitted or loaded scaler."""
         if self.scaler is None:
             raise RuntimeError("[ERROR] Scaler not fitted or loaded before transform().")
         df[cols] = self.scaler.transform(df[cols])
         return df
 
-    def fit_transform(self, df: pd.DataFrame, cols: list):
+    def fit_transform(self, df: pd.DataFrame, cols: List[str]):
         """Fit then transform in one call."""
         self.fit(df, cols)
         return self.transform(df, cols)
@@ -61,10 +61,29 @@ class DataScaler:
 # === SPLIT + SCALE FUNCTION ===
 # ============================================================
 
-def split_scale(df, target_cols='y', test_size=0.2, val_size=0.1,
-                scale=True, continuous_cols=None, scaler_path=None):
+def split_scale(
+    df: pd.DataFrame,
+    target_cols: str = 'y',
+    test_size: float = 0.2,
+    val_size: float = 0.1,
+    scale: bool = True,
+    continuous_cols: Optional[List[str]] = None,
+    scaler_path: Optional[str] = None
+):
     """
-    Split into train/val/test and apply DataScaler if requested.
+    Split DataFrame into train/val/test and apply DataScaler if requested.
+
+    Args:
+        df : full DataFrame
+        target_cols : target column name
+        test_size : proportion for test set
+        val_size : proportion for validation set
+        scale : whether to scale continuous columns
+        continuous_cols : columns to scale (auto-detected if None)
+        scaler_path : path for StandardScaler file
+
+    Returns:
+        train_df, val_df, test_df, fitted DataScaler (or None)
     """
     n = len(df)
     test_start = int(n * (1 - test_size - val_size))
@@ -99,6 +118,7 @@ def split_scale(df, target_cols='y', test_size=0.2, val_size=0.1,
 class CryptoDataset(Dataset):
     """
     PyTorch Dataset for windowed crypto data.
+    Converts tabular features into sequential windows.
     """
     def __init__(self, df: pd.DataFrame, window_size=64, target='target'):
         self.window_size = window_size
@@ -124,16 +144,6 @@ def triple_barrier_label(df, close='close', high='high', low='low',
     """
     Triple barrier labeling method (based on López de Prado).
     Detects direction (higher/lower/neutral) within hold-period window.
-
-    Args:
-        df : DataFrame containing OHLC and volatility columns
-        ku, kd : upper/lower multipliers for barriers
-        hold : look-ahead horizon in bars
-        labels : custom label mapping (optional)
-        debug : include barrier columns for visualization
-
-    Returns:
-        DataFrame with 'y' label column
     """
     closes, highs, lows, vol = df[close].values, df[high].values, df[low].values, df[volatility].values
     if labels is None:
@@ -170,7 +180,7 @@ def triple_barrier_label(df, close='close', high='high', low='low',
 def min_max_label(df, close='close', high='high', low='low', horizon=16):
     """
     Compute future maximum/minimum log returns over a lookahead horizon.
-    Used for regression-style forecasting or probabilistic labeling.
+    Useful for regression-based targets or probabilistic labeling.
     """
     closes, highs, lows = df[close].values, df[high].values, df[low].values
     n = len(df)
