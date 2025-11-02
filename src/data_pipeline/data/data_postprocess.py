@@ -109,13 +109,13 @@ def main():
     # --- Step 3: Save base numeric dataset ---
     base_path = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_numeric.parquet"
     df.to_parquet(base_path, index=False)
-    print(f"[OK] Saved numeric dataset → {base_path}")
+    print(f"[OK] Saved numeric dataset to {base_path}")
 
     # ============================================================
     # === Step 4: Run normalization (ATR scale-free) ============
     # ============================================================
     normalized_path = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_normalized.parquet"
-    print(f"[INFO] Running normalization → {normalized_path.name}")
+    print(f"[INFO] Running normalization -> {normalized_path.name}")
 
     subprocess.run([
         sys.executable, "src/data_pipeline/data/normalize.py",
@@ -128,7 +128,7 @@ def main():
     # === Step 5: Run standardization (z-score + .pkl) ===========
     # ============================================================
     standardized_path = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_standardized.parquet"
-    print(f"[INFO] Running standardization → {standardized_path.name}")
+    print(f"[INFO] Running standardization -> {standardized_path.name}")
 
     subprocess.run([
         sys.executable, "src/data_pipeline/data/standardize.py",
@@ -137,9 +137,9 @@ def main():
         "--symbol", args.symbol
     ], check=True)
 
-    print(f"[OK] Final ML dataset → {normalized_path}")
-    print(f"[OK] Final DL dataset → {standardized_path}")
-    print(f"[OK] Scaler saved → data/model/scalers/standard_scaler_{symbol_clean}.pkl")
+    print(f"[OK] Final ML dataset -> {normalized_path}")
+    print(f"[OK] Final DL dataset -> {standardized_path}")
+    print(f"[OK] Scaler saved -> data/model/scalers/standard_scaler_{symbol_clean}.pkl")
 
     # --- Step 6: Clean up intermediate files ---
     print("[INFO] Cleaning up intermediate files...")
@@ -154,9 +154,9 @@ def main():
         os.remove(base_path)
         print(f"   - Removed {base_path.name}")
 
-    print("\n✅ Data pipeline complete!")
-    print(f"🧩 ML dataset: {normalized_path}")
-    print(f"🧠 DL dataset: {standardized_path}")
+    print("\n[OK] Data pipeline complete!")
+    print(f" ML dataset: {normalized_path}")
+    print(f" DL dataset: {standardized_path}")
 
 
 if __name__ == "__main__":
