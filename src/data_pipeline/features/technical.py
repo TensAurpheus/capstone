@@ -6,8 +6,8 @@ Integrates TA-Lib-style indicators via pandas_ta and adds trading session featur
 
 Usage:
   python src/data_pipeline/features/technical.py \
-    --input data/processed/SOL_USDT_15m_features.parquet \
-    --output data/processed/SOL_USDT_15m_technical.parquet
+    --input data/processed/BTC_USDT_15m_features.parquet \
+    --output data/processed/BTC_USDT_15m_technical.parquet
 """
 
 import argparse
@@ -124,12 +124,31 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["funding_bias"] = 0
 
-    # === Assign session ===
+    # === Assign trading sessions ===
     df["hour"] = df.index.hour
     df["session"] = df["hour"].map(assign_session)
-
-    # === Session-level statistics (by day + session) ===
     df["date"] = df.index.date
+
+    # === VWAP per session (stable transform version) ===
+    if all(c in df.columns for c in ["high", "low", "close", "volume"]):
+        print("[INFO] Computing session-level VWAP...")
+        try:
+            def compute_session_vwap(group):
+                price = (group["high"] + group["low"] + group["close"]) / 3
+                cum_pv = (price * group["volume"]).cumsum()
+                cum_vol = group["volume"].cumsum().replace(0, np.nan)
+                return cum_pv / cum_vol
+
+            vwap_session = df.groupby(["date", "session"], group_keys=False).apply(compute_session_vwap)
+            vwap_session.index = df.index 
+            df["vwap_session"] = vwap_session
+
+        except Exception as e:
+            print(f"[WARN] Session VWAP skipped due to error: {e}")
+    else:
+        print("[WARN] Session VWAP skipped — missing OHLCV columns.")
+
+    # === Session-level statistics ===
     session_stats = (
         df.groupby(["date", "session"])
         .agg({
@@ -148,7 +167,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df.drop(columns=["hour"], inplace=True, errors="ignore")
 
-    print("[OK] Technical indicators and session statistics added.")
+    print("[OK] Technical indicators + sessions + VWAP added.")
     return df
 
 
