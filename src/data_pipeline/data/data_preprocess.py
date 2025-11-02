@@ -1,30 +1,26 @@
 """
-data_postprocess.py
+data_preprocess.py
 ---------------------------------
 Fetches OHLCV (and optionally funding rate) data from Binance Spot or Futures,
-merges, applies basic QA, normalization (scale-free + standardization),
+performs preprocessing ( direction, QA),
 and saves ready-to-use dataset.
 
 Usage:
-  python src/data_pipeline/data/data_postprocess.py --symbol BTCUSDT --market futures --start 2018-01-01 --end 2025-01-01 --timeframe 15m
+  python src/data_pipeline/data/data_preprocess.py --symbol BTCUSDT --market futures --start 2018-01-01 --end 2025-01-01 --timeframe 15m
 """
 
 import sys
 import argparse
 import time
-import warnings
 from pathlib import Path
-import os
+import warnings
 
 import ccxt
 import numpy as np
 import pandas as pd
 
-# Import normalization utility
-from src.data.normalize import normalize_features
-
 # Ensure UTF-8 output (especially for Windows)
-sys.stdout.reconfigure(encoding="utf-8")
+sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
@@ -36,20 +32,21 @@ def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
     # Select correct exchange
     if market_type == "futures":
         exchange = ccxt.binance({
-            "options": {"defaultType": "future"}
+            "options": {"defaultType": "future"}  # ✅ more reliable for USDT-M futures
         })
     else:
         exchange = ccxt.binance()
 
     exchange.load_markets()
 
-    # Ensure proper symbol format
+    # ✅ Ensure symbol in Binance format (add "/" if missing)
     if "/" not in symbol and len(symbol) > 4:
         if symbol.endswith("USDT"):
             symbol = symbol[:-4] + "/USDT"
         elif symbol.endswith("USDC"):
             symbol = symbol[:-4] + "/USDC"
 
+    # ✅ Try to reload markets and fallback if not found
     if symbol not in exchange.markets:
         print(f"[WARN] {symbol} not found on first load — retrying...")
         time.sleep(1)
@@ -85,9 +82,13 @@ def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
     return df
 
 
+
 # ------------- FUNDING RATE -------------
 def _call_funding_endpoint(exchange, params):
-    """Try multiple ccxt method names for Binance Futures funding endpoint."""
+    """
+    Try multiple ccxt method names for Binance Futures funding endpoint,
+    because names vary across ccxt versions.
+    """
     candidates = [
         "fapiPublicGetFundingRate",
         "publicGetFapiV1FundingRate",
@@ -109,7 +110,7 @@ def fetch_funding_rate(symbol: str, start_utc: pd.Timestamp, end_utc: pd.Timesta
     end_ms = int(end_utc.timestamp() * 1000)
 
     params = {
-        "symbol": symbol.replace("/", ""),
+        "symbol": symbol.replace("/", ""),  # e.g. BTCUSDT
         "startTime": start_ms,
         "limit": 1000,
     }
@@ -149,7 +150,7 @@ def fetch_funding_rate(symbol: str, start_utc: pd.Timestamp, end_utc: pd.Timesta
 
 # --------------- PREPROCESS ---------------
 def preprocess_data(df_ohlcv: pd.DataFrame, df_funding: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    """Merge OHLCV with (optional) funding, basic QA, and normalization."""
+    """Merge OHLCV with (optional) funding, basic QA."""
     print("[INFO] Preprocessing data...")
 
     df_ohlcv = df_ohlcv.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
@@ -164,27 +165,17 @@ def preprocess_data(df_ohlcv: pd.DataFrame, df_funding: pd.DataFrame, symbol: st
 
     df = df.dropna().reset_index(drop=True)
 
-    df["symbol"] = symbol.replace("/", "_")
-    print(f"[OK] Final merged dataset: {df.shape}")
-
-    # === Apply normalization (scale-free + optional standardization) ===
-    scaler_path = os.path.join(
-        "data", "model", "scalers", f"standard_scaler_{df['symbol'].iloc[0]}.pkl"
-    )
-
-    print(f"[INFO] Normalizing features for {symbol} ...")
-    df = normalize_features(df, scale_for_dl=True, save_scaler_path=scaler_path)
-    print("[OK] Normalization complete.")
-
     print("[INFO] Time diff check:")
     print(df["timestamp"].diff().value_counts().head())
 
+    df["symbol"] = symbol.replace("/", "_")
+    print(f"[OK] Final dataset: {df.shape}")
     return df
 
 
 # ------------------- CLI -------------------
 def main():
-    parser = argparse.ArgumentParser(description="Fetch, merge and preprocess Binance Spot/Futures data.")
+    parser = argparse.ArgumentParser(description="Fetch and preprocess Binance Spot/Futures data.")
     parser.add_argument("--symbol", type=str, default="BTCUSDT", help="Pair, e.g. BTCUSDT")
     parser.add_argument("--market", type=str, choices=["spot", "futures"], default="futures",
                         help="Market type")
@@ -204,7 +195,7 @@ def main():
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    out_path = outdir / f"{args.symbol.replace('/', '_')}_{args.timeframe}_{args.market}_normalized.parquet"
+    out_path = outdir / f"{args.symbol.replace('/', '_')}_{args.timeframe}_{args.market}_raw.parquet"
     df_prep.to_parquet(out_path, index=False)
 
     print(f"[OK] Saved -> {out_path}")
