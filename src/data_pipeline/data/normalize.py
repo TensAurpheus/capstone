@@ -67,7 +67,7 @@ def main():
     parser.add_argument("--symbol", type=str, required=True, help="Symbol name (e.g. BTC/USDT)")
     args = parser.parse_args()
 
-    print(f"\n[INFO] Loading dataset → {args.input}")
+    print(f"\n[INFO] Loading dataset -> {args.input}")
     df = pd.read_parquet(args.input)
     print(f"[INFO] Loaded {len(df):,} rows, {len(df.columns)} columns")
 
@@ -76,7 +76,7 @@ def main():
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     df.to_parquet(args.output, index=False)
 
-    print(f"[OK] Saved normalized dataset → {args.output}")
+    print(f"[OK] Saved normalized dataset -> {args.output}")
     print(f"[COLUMNS] {df.columns.tolist()}")
 
 
