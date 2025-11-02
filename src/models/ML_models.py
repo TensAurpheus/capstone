@@ -38,7 +38,7 @@ def prepare_data(
     # --- Determine scaler path dynamically ---
     if scaler_path is None:
         if symbol:
-            scaler_name = f"standard_scaler_{symbol.replace('/', '_')}"
+            scaler_name = f"standard_scaler_{symbol.replace('/', '_')}_{timeframe}"
             if timeframe:
                 scaler_name += f"_{timeframe}"
             scaler_path = f"data/model/scalers/{scaler_name}.pkl"
