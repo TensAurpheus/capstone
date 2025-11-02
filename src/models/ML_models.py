@@ -10,7 +10,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from ..data_preprocess import split_scale
+from ..data.data_utils import split_scale, DataScaler
 
 
 def prepare_data(
@@ -21,31 +21,51 @@ def prepare_data(
     test_size: float = 0.2,
     val_size: float = 0.1,
     scale: bool = True,
+    symbol: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    scaler_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Load the parquet file and return numpy arrays ready for modeling."""
+    """
+    Load parquet file, split into train/val/test, and apply scaling.
+    Automatically assigns unique scaler path per symbol/timeframe.
+    """
 
     frame = pd.read_parquet(parquet_path)
 
     if feature_cols is None:
         feature_cols = [col for col in frame.columns if col != target_col]
 
-    train_df, val_df, test_df, timestamps, scaler = split_scale(
+    # --- Determine scaler path dynamically ---
+    if scaler_path is None:
+        if symbol:
+            scaler_name = f"standard_scaler_{symbol.replace('/', '_')}"
+            if timeframe:
+                scaler_name += f"_{timeframe}"
+            scaler_path = f"data/model/scalers/{scaler_name}.pkl"
+        else:
+            scaler_path = "data/model/scalers/standard_scaler_generic.pkl"
+
+    print(f"[INFO] Using scaler path: {scaler_path}")
+
+    # === Split + Scale ===
+    train_df, val_df, test_df, scaler = split_scale(
         frame,
-        feature_cols=feature_cols,
-        target_col=target_col,
+        target_cols=target_col,
         test_size=test_size,
         val_size=val_size,
         scale=scale,
+        scaler_path=scaler_path,
     )
+
+    timestamps = frame["timestamp"] if "timestamp" in frame.columns else None
 
     def _to_arrays(df: pd.DataFrame) -> Dict[str, np.ndarray]:
         return {
             "X": df[feature_cols].to_numpy(dtype=np.float32),
-            "y": df[target_col if target_col in df.columns else "target"].to_numpy(
-                dtype=np.float32
-            ),
+            "y": df[target_col if target_col in df.columns else "target"].to_numpy(dtype=np.float32),
         }
 
+    print("[OK] Data prepared successfully.")
     return {
         "train": _to_arrays(train_df),
         "val": _to_arrays(val_df),
@@ -55,6 +75,8 @@ def prepare_data(
         "scaler": scaler,
     }
 
+
+# === MODEL BUILDERS ===
 
 def _build_model(name: str, params: Dict[str, Any]) -> Any:
     name = name.lower()
@@ -118,6 +140,8 @@ def _build_model(name: str, params: Dict[str, Any]) -> Any:
     raise ValueError(f"Unsupported model name: {name}")
 
 
+# === METRICS & HELPERS ===
+
 def _evaluate_regression(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
     return {
@@ -150,7 +174,6 @@ def _apply_progress_defaults(name: str, params: Dict[str, Any], enabled: bool) -
 
 def _extract_feature_importances(model: Any, feature_names: List[str]) -> Optional[Dict[str, float]]:
     """Return a mapping of feature name to importance if the model provides it."""
-
     importance_values: Optional[np.ndarray] = None
 
     if hasattr(model, "feature_importances_"):
@@ -167,14 +190,13 @@ def _extract_feature_importances(model: Any, feature_names: List[str]) -> Option
         except TypeError:  # pragma: no cover - API differences
             importance_values = None
 
-    if importance_values is None:
-        return None
-
-    if importance_values.size != len(feature_names):
+    if importance_values is None or importance_values.size != len(feature_names):
         return None
 
     return dict(zip(feature_names, importance_values.tolist()))
 
+
+# === MAIN TRAINING ENTRY ===
 
 def train_and_predict(
     model_name: str,
