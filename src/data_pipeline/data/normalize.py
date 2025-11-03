@@ -9,6 +9,7 @@ import os
 import numpy as np
 import pandas as pd
 import argparse
+from pathlib import Path
 
 
 def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -34,7 +35,6 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         "macd": df["macd"] / atr,
         "macd_signal": df["macd_signal"] / atr,
         "macd_hist": df["macd_hist"] / atr,
-        "atr_14": df["atr_14"] / df["close"],  # relative volatility
         "bb_bbm": (df["close"] - df["bb_bbm"]) / atr,
         "bb_bbh": (df["close"] - df["bb_bbh"]) / atr,
         "bb_bbl": (df["close"] - df["bb_bbl"]) / atr,
@@ -51,9 +51,25 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = expr
 
+ 
+    # ATR-relative volatility metrics
+    df["atr_pct"] = df["atr_14"] / df["close"]
+    df["range_atr"] = (df["high"] - df["low"]) / df["atr_14"]
+    df["body_atr"] = (df["close"] - df["open"]) / df["atr_14"]           
+
     # FVG gap normalization
     if "fvg_gap" in df.columns and df["fvg_gap"].nunique() > 2:
         df["fvg_gap"] = df["fvg_gap"] / atr
+
+    # Handle inf/nan
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.ffill(inplace=True)
+    df.bfill(inplace=True)
+
+    # Drop unstable EMA region
+    min_period = 199  
+    df = df.iloc[min_period:].reset_index(drop=True)
+    print(f"[INFO] Dropped first {min_period} rows (unstable EMA region).")
 
     print("[OK] Scale-free normalization complete.")
     print("\n=== NORMALIZATION COMPLETED ===")
@@ -70,6 +86,19 @@ def main():
     print(f"\n[INFO] Loading dataset -> {args.input}")
     df = pd.read_parquet(args.input)
     print(f"[INFO] Loaded {len(df):,} rows, {len(df.columns)} columns")
+
+    # --- Save raw (pre-normalized) dataset to Excel ---
+    excel_draft = Path(args.input).with_name(Path(args.input).stem + "_draft.xlsx")
+    try:
+        # Видаляємо timezone для Excel
+        for col in df.select_dtypes(include=["datetimetz"]).columns:
+            df[col] = df[col].dt.tz_localize(None)
+
+        df.to_excel(excel_draft, index=False)
+        print(f"[OK] Excel draft saved to {excel_draft}")
+    except Exception as e:
+        print(f"[WARN] Could not save Excel draft file: {e}")
+        
 
     df = normalize_features(df)
 
