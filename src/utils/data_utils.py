@@ -25,6 +25,7 @@ class DataScaler:
 
     def fit(self, df: pd.DataFrame, cols: List[str]):
         """Fit StandardScaler on specified columns and optionally save."""
+        df = df.copy().replace([np.inf, -np.inf], np.nan).dropna(subset=cols)
         self.scaler = StandardScaler()
         self.scaler.fit(df[cols])
 
@@ -48,6 +49,11 @@ class DataScaler:
         """Apply transformation using fitted or loaded scaler."""
         if self.scaler is None:
             raise RuntimeError("[ERROR] Scaler not fitted or loaded before transform().")
+
+        df = df.copy()
+        df[cols] = df[cols].replace([np.inf, -np.inf], np.nan)
+        df[cols] = df[cols].ffill().bfill()
+
         df[cols] = self.scaler.transform(df[cols])
         return df
 
@@ -89,6 +95,8 @@ def split_scale(
     test_start = int(n * (1 - test_size - val_size))
     val_start = int(n * (1 - val_size))
 
+    df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+
     if continuous_cols is None:
         numeric_cols = df.select_dtypes(include=["float64", "float32", "int64", "int32"]).columns
         binary_cols = [c for c in numeric_cols if df[c].nunique(dropna=True) <= 2]
@@ -102,6 +110,9 @@ def split_scale(
         else:
             scaler.fit(df.iloc[:test_start], continuous_cols)
         df = scaler.transform(df, continuous_cols)
+        print("[OK] Scaling applied successfully.")
+    else:
+        print("[INFO] Scaling skipped (raw features).")
 
     return (
         df.iloc[:test_start].reset_index(drop=True),
@@ -182,6 +193,8 @@ def min_max_label(df, close='close', high='high', low='low', horizon=16):
     Compute future maximum/minimum log returns over a lookahead horizon.
     Useful for regression-based targets or probabilistic labeling.
     """
+    print(f"[STEP] Generating regression labels (min_max) with horizon={horizon}...")
+
     closes, highs, lows = df[close].values, df[high].values, df[low].values
     n = len(df)
     y_high, y_low = np.zeros(n), np.zeros(n)
@@ -191,6 +204,21 @@ def min_max_label(df, close='close', high='high', low='low', horizon=16):
         y_low[i] = np.min(lows[i + 1:i + 1 + horizon])
 
     out = df.copy()
-    out['y_high'] = np.log(y_high / closes)
-    out['y_low'] = np.log(y_low / closes)
+
+    # avoids log(0)
+    eps = 1e-8
+    safe_close = np.clip(closes, eps, None)
+    safe_high = np.clip(y_high, eps, None)
+    safe_low = np.clip(y_low, eps, None)
+
+    out['y_high'] = np.log(safe_high / safe_close)
+    out['y_low'] = np.log(safe_low / safe_close)
+
+    # remove inf and nans
+    out.replace([np.inf, -np.inf], np.nan, inplace=True)
+    out.dropna(subset=['y_high', 'y_low'], inplace=True)
+    out.reset_index(drop=True, inplace=True)
+
+    print(f"[OK] Added columns: {{'y_high', 'y_low'}} (after cleaning: {len(out):,} rows remain)")
     return out
+
