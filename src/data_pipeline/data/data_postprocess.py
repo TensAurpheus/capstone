@@ -107,7 +107,7 @@ def main():
         print(f"[WARN] Could not save Excel file: {e}")
 
     # --- Remove intermediate parquet files ---
-    stages = ["features", "technical", "patterns", "normalized"]
+    stages = ["features", "technical", "patterns", "macro", "normalized"]
     for stage in stages:
         temp_file = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_{stage}.parquet"
         if temp_file.exists() and temp_file != final_path:
