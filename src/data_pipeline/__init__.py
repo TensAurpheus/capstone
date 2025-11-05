@@ -1,9 +1,27 @@
+# src/data_pipeline/__init__.py
 """
-data_pipeline package:
-manages full dataset creation — fetching, preprocessing, feature generation.
+Initialization for the data pipeline package.
+Combines data processing and feature engineering modules.
 """
 
-from .data import data_preprocess, preprocessing
-from .features import technical, patterns
+from .data import (
+    data_preprocess,
+    preprocessing,
+    normalize,
+    data_postprocess,
+)
 
-__all__ = ["data_preprocess", "preprocessing", "technical", "patterns"]
+from .features import (
+    add_technical_indicators,
+    generate_patterns,
+)
+
+__all__ = [
+    "data_preprocess",
+    "preprocessing",
+    "normalize",
+    "data_postprocess",
+    "add_technical_indicators",
+    "generate_patterns",
+]
+

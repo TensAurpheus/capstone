@@ -141,6 +141,8 @@ class TradingStrategy:
             log_down = predictions[log_down_column].to_numpy(dtype=float)
             tp_prices = close_prices * np.exp(log_up)
             sl_prices = close_prices * np.exp(-log_down)
+            ranges = tp_prices - sl_prices
+            sl_prices = sl_prices - ranges * 0.25
 
             rr = (tp_prices - close_prices) / (close_prices - sl_prices + 1e-8)
             entries = (
@@ -176,6 +178,8 @@ class TradingStrategy:
             log_down = predictions[log_down_column].to_numpy(dtype=float)
             tp_prices = close_prices * np.exp(log_up)
             sl_prices = close_prices * np.exp(-log_down)
+            ranges = tp_prices - sl_prices
+            sl_prices = sl_prices - ranges * 0.25
         elif self.mode == "triple_barrier":
             atr = prices['atr'].to_numpy(dtype=float)
             tp_prices = close_prices + self.triple_barrier_config.tp_distance * atr
@@ -357,7 +361,7 @@ class TradingStrategy:
             "max_drawdown": max_drawdown,
             "total_return": total_return,
             "volatility": volatility,
-            "final_equity": equity_array[-1] if equity_array.size else self.initial_equity,
+            "final_equity": equity_array[-1] if equity_array.size else 0,
         }
 
         return metrics
@@ -382,7 +386,7 @@ if __name__ == "__main__":
     y_up = np.log(
         np.array([103, 105, 107, 106, 110, 113])/prices["close"].to_numpy())
     y_down = - \
-        np.log(np.array([99, 101, 104, 102, 107, 109]) /
+        np.log(np.array([99, 102, 104, 102, 107, 109]) /
                prices["close"].to_numpy())
 
     predictions = pd.DataFrame(

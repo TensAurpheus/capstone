@@ -1,4 +1,4 @@
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 import pandas as pd
@@ -6,25 +6,55 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 
+
 def split_scale(df, target_cols='y', test_size=0.2, val_size=0.1, scale=True):
-    """Split into train/val/test and scale."""
-    
-    scaler = MinMaxScaler() if scale else None
+    """Split into train/val/test and selectively scale features with StandardScaler."""
+    df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+
+    # --- Ensure target_cols is iterable ---
+    if isinstance(target_cols, str):
+        target_cols = [target_cols]
+
     n = len(df)
     test_start = int(n * (1 - test_size - val_size))
     val_start = int(n * (1 - val_size))
-    feature_cols = df.columns.difference(target_cols)
+
+    # --- Define feature columns ---
+    feature_cols = [c for c in df.columns if c not in target_cols]
+
+    # --- Exclude raw OHLC, ATR, and boolean/binary columns from scaling ---
+    exclude_cols = ['open', 'high', 'low', 'close', 'atr_14']
+
+    # Detect binary/boolean columns automatically
+    binary_cols = [c for c in feature_cols if df[c].nunique(dropna=True) <= 2]
+
+    # Form final list of scaled columns
+    scale_cols = [
+        c for c in feature_cols if c not in exclude_cols + binary_cols]
+
+    print(f"[INFO] Using StandardScaler, scaling = {scale}")
+    print(
+        f"[INFO] Total features: {len(feature_cols)} | Scaled: {len(scale_cols)} | Excluded: {exclude_cols}")
+
+    scaler = StandardScaler() if scale else None
 
     if scale:
-        scaler.fit(df[feature_cols].iloc[:test_start])
-        df[feature_cols] = scaler.transform(df[feature_cols])
+        # Fit only on training part
+        scaler.fit(df[scale_cols].iloc[:test_start])
+        df[scale_cols] = scaler.transform(df[scale_cols])
+        print(f"[OK] Standard scaling applied to {len(scale_cols)} columns.")
+    else:
+        print("[INFO] Scaling skipped (using raw features).")
 
-    return (
-        df.iloc[:test_start].reset_index(drop=True),
-        df.iloc[test_start:val_start].reset_index(drop=True),
-        df.iloc[val_start:].reset_index(drop=True),
-        scaler
-    )
+    # --- Split dataset ---
+    train_df = df.iloc[:test_start].reset_index(drop=True)
+    val_df = df.iloc[test_start:val_start].reset_index(drop=True)
+    test_df = df.iloc[val_start:].reset_index(drop=True)
+
+    print(
+        f"[OK] Split complete → Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+
+    return train_df, val_df, test_df, scaler
 
 
 class CryptoDataset(Dataset):
@@ -37,11 +67,11 @@ class CryptoDataset(Dataset):
             df[target].to_numpy(), dtype=torch.float32)
 
     def __len__(self):
-        return len(self.data) - self.window_size + 1
+        return len(self.features) - self.window_size + 1
 
     def __getitem__(self, idx):
         X = self.features[idx: idx + self.window_size]
-        y = self.targets[idx]
+        y = self.targets[idx + self.window_size - 1]
         return X, y
 
 
@@ -55,7 +85,7 @@ def triple_barrier_label(df, close='close', high='high', low='low', volatility='
     closes, highs, lows, volatility = df[close].values, df[high].values, df[low].values, df[volatility].values
 
     if labels is None:
-        labels = {'higher': 1, 'lower': -1, 'none': 0}
+        labels = {'higher': 2, 'lower': 1, 'none': 0}
 
     n = len(df)
     y = np.zeros(n, dtype=int)

@@ -1,9 +1,14 @@
+# src/data_pipeline/features/__init__.py
 """
-features subpackage:
-technical, pattern and other feature engineering modules
+Initialization for feature engineering modules.
+Includes technical indicators and pattern-based features.
 """
 
-from .technical import generate_technical_features
-from .patterns import generate_pattern_features
+from .technical import add_technical_indicators
+from .patterns import generate_patterns
 
-__all__ = ["generate_technical_features", "generate_pattern_features"]
+__all__ = [
+    "add_technical_indicators",
+    "generate_patterns",
+]
+
