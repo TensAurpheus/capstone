@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 
-def split_scale(df, target_cols='y', test_size=0.2, val_size=0.1, scale=True):
+def split_scale(df, target_cols='y', test_size=0.15, val_size=0.15, scale=True):
     """Split into train/val/test and selectively scale features with StandardScaler."""
     df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
 
@@ -16,8 +16,8 @@ def split_scale(df, target_cols='y', test_size=0.2, val_size=0.1, scale=True):
         target_cols = [target_cols]
 
     n = len(df)
-    test_start = int(n * (1 - test_size - val_size))
-    val_start = int(n * (1 - val_size))
+    test_start = int(n * (1 - test_size))
+    val_start = int(n * (1 - val_size - test_size))
 
     # --- Define feature columns ---
     feature_cols = [c for c in df.columns if c not in target_cols]
@@ -47,9 +47,9 @@ def split_scale(df, target_cols='y', test_size=0.2, val_size=0.1, scale=True):
         print("[INFO] Scaling skipped (using raw features).")
 
     # --- Split dataset ---
-    train_df = df.iloc[:test_start].reset_index(drop=True)
-    val_df = df.iloc[test_start:val_start].reset_index(drop=True)
-    test_df = df.iloc[val_start:].reset_index(drop=True)
+    train_df = df.iloc[:val_start].reset_index(drop=True)
+    val_df = df.iloc[val_start:test_start].reset_index(drop=True)
+    test_df = df.iloc[test_start:].reset_index(drop=True)
 
     print(
         f"[OK] Split complete → Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")

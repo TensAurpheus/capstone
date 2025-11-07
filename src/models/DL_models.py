@@ -51,18 +51,20 @@ class _RNNClassifier(nn.Module):
             bidirectional=bidirectional,
         )
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(
-            hidden_size * (2 if bidirectional else 1), num_classes*2)
-        self.out = nn.Linear(num_classes*2, num_classes)
+        # self.fc = nn.Linear(
+        #     hidden_size * (2 if bidirectional else 1), num_classes*4)
+        # self.fc2 = nn.Linear(num_classes*4, num_classes*2)
+        self.out = nn.Linear(
+            hidden_size * (2 if bidirectional else 1), num_classes)
 
     def forward(self, inputs: Tensor) -> Tensor:
         outputs, _ = self.rnn(inputs)
         last_timestep = outputs[:, -1, :]
         out = self.dropout(last_timestep)
-        out = self.fc(out)
-        out = torch.relu(out)
+        # out = self.fc(out)
+        # out = torch.relu(out)
+        # out = torch.relu(self.fc2(out))
         out = self.out(out)
-        # out = torch.softmax(out, dim=1)
 
         return out
 
@@ -80,6 +82,7 @@ class _SequenceClassifier:
         rnn_type: str,
     ) -> None:
         device, use_parallel = _select_device()
+        self.num_classes = num_classes
         model = _RNNClassifier(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -107,7 +110,14 @@ class _SequenceClassifier:
         model_path: Union[str, Path] = "artifacts/sequence_model.pt",
         loss_plot_path: Union[str, Path] = "artifacts/loss_curve.png",
         num_workers: int = 0,
+        weights: Optional[ArrayLike] = None,
     ) -> dict:
+
+        if weights is None:
+            weights = np.ones(self.num_classes, dtype=np.float32)
+
+        weights = torch.tensor(
+            weights, device=self.device, dtype=torch.float32)
 
         train_loader = DataLoader(
             train_data,
@@ -122,7 +132,7 @@ class _SequenceClassifier:
             num_workers=num_workers,
         )
 
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss(weight=weights)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         best_val = float("inf")

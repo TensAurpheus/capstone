@@ -1,11 +1,8 @@
-"""Trading utilities for running strategy backtests on pre-generated predictions."""
-
 from dataclasses import dataclass
 from typing import List, Sequence
 
 import numpy as np
 import pandas as pd
-
 
 TRADE_COLUMNS = [
     "open_date",
@@ -117,7 +114,7 @@ class TradingStrategy:
         self,
         predictions: Sequence[float] | pd.DataFrame,
         prices: pd.DataFrame,
-        probability_column: str = "TP_prob",
+        probability_column: str = "p2",
         log_up_column: str = "y_up",
         log_down_column: str = "y_down",
     ) -> dict:
@@ -159,11 +156,19 @@ class TradingStrategy:
         probability_column: str = "TP_prob",
         log_up_column: str = "y_up",
         log_down_column: str = "y_down",
+        atr_column: str = "atr_14",
         equity: float = 1000.0,
         position_size: float = 1.0,
+        risk_mode: str = "fixed_size",
+        compound: bool = False,
     ) -> dict:
         """Run a backtest using pre-generated prediction outputs."""
 
+        self.initial_equity = equity
+        self.compound = compound
+
+        if risk_mode not in {"fixed_size", "fixed_risk"}:
+            raise ValueError("risk_mode must be 'fixed_size' or 'fixed_risk'")
         close_prices = prices["close"].to_numpy(dtype=float)
 
         if close_prices.size == 0:
@@ -181,7 +186,7 @@ class TradingStrategy:
             ranges = tp_prices - sl_prices
             sl_prices = sl_prices - ranges * 0.25
         elif self.mode == "triple_barrier":
-            atr = prices['atr'].to_numpy(dtype=float)
+            atr = prices[atr_column].to_numpy(dtype=float)
             tp_prices = close_prices + self.triple_barrier_config.tp_distance * atr
             sl_prices = close_prices - self.triple_barrier_config.sl_distance * atr
 
@@ -212,28 +217,28 @@ class TradingStrategy:
         for i in range(close_prices.shape[0]):
             timestamp = timestamps_arr[i]
             prev_equity = equity
-            print('step ', i+1)
+            # print('step ', i+1)
 
             if current_trade is not None and i > current_trade["entry_index"]:
 
                 if low_prices[i] <= current_trade["stop_price"]:
                     exit_price = current_trade["stop_price"]
                     exit_reason = "stop_loss"
-                    print(
-                        f'sl low_price: {low_prices[i]}, SL: {current_trade["stop_price"]}')
+                    # print(
+                    # f'sl low_price: {low_prices[i]}, SL: {current_trade["stop_price"]}')
                 elif high_prices[i] >= current_trade["target_price"]:
                     exit_price = current_trade["target_price"]
                     exit_reason = "take_profit"
-                    print(
-                        f'tp high_price: {high_prices[i]}, TP: {current_trade["target_price"]}')
+                    # print(
+                    #     f'tp high_price: {high_prices[i]}, TP: {current_trade["target_price"]}')
                 elif i >= current_trade["expiry_index"]:
                     exit_price = close_prices[i]
                     exit_reason = "expiry"
-                    print(f'expiry close_price: {close_prices[i]}')
+                    # print(f'expiry close_price: {close_prices[i]}')
                 elif i == close_prices.shape[0] - 1:
                     exit_price = close_prices[i]
                     exit_reason = "market_close"
-                    print(f'market_close close_price: {close_prices[i]}')
+                    # print(f'market_close close_price: {close_prices[i]}')
 
                 if exit_reason is not None and exit_price is not None:
                     equity, record = self._finalize_trade(
@@ -244,8 +249,8 @@ class TradingStrategy:
                         equity,
                         current_trade["position_size"],
                     )
-                    print(
-                        f'close trade TP: {current_trade["target_price"]}, SL: {current_trade["stop_price"]}, low_price: {low_prices[i]}, high_price: {high_prices[i]}, exit_reason: {exit_reason}')
+                    # print(
+                    #     f'close trade TP: {current_trade["target_price"]}, SL: {current_trade["stop_price"]}, low_price: {low_prices[i]}, high_price: {high_prices[i]}, exit_reason: {exit_reason}')
                     trade_records.append(record)
                     current_trade = None
                     exit_price = None
@@ -256,9 +261,12 @@ class TradingStrategy:
                 target_price = float(tp_prices[i])
                 stop_price = float(sl_prices[i])
                 expiry_index = i + holding_period
-                cur_position_size = position_size / \
-                    (np.abs(stop_price/entry_price - 1) +
-                     self.slippage + self.transaction_cost)
+                if risk_mode == "fixed_size":
+                    cur_position_size = position_size
+                elif risk_mode == "fixed_risk":
+                    cur_position_size = position_size / \
+                        (np.abs(stop_price/entry_price - 1) +
+                         self.slippage + self.transaction_cost)
 
                 current_trade = {
                     "open_date": timestamp,
@@ -270,8 +278,8 @@ class TradingStrategy:
                     "entry_equity": equity,
                     "position_size": cur_position_size
                 }
-                print(
-                    f'open trade TP: {current_trade["target_price"]}, SL: {current_trade["stop_price"]}')
+                # print(
+                #     f'open trade TP: {current_trade["target_price"]}, SL: {current_trade["stop_price"]}')
 
             step_return = (equity - prev_equity) / \
                 prev_equity if prev_equity else 0.0
@@ -304,7 +312,13 @@ class TradingStrategy:
 
         gross_return = (exit_price / entry_price - 1.0 -
                         self.slippage - self.transaction_cost) * position_size
-        equity *= (1 + gross_return)
+
+        if self.compound:
+            equity *= (1 + gross_return)
+            position_size = position_size*equity
+        else:
+            equity += self.initial_equity * gross_return
+            position_size = position_size*self.initial_equity
 
         pnl = equity - entry_equity
         return_pct = (equity / entry_equity - 1) * 100 if entry_equity else 0.0
@@ -365,51 +379,3 @@ class TradingStrategy:
         }
 
         return metrics
-
-
-if __name__ == "__main__":
-    prices = pd.DataFrame(
-        {
-            "close": [100, 102, 105, 103, 105, 105],
-            "high": [101, 102, 106, 104, 105, 105],
-            "low": [99, 99, 102, 101, 104, 104],
-            "atr": [1, 1, 1, 1, 1, 1],
-        }
-    )
-
-    tb_config = TripleBarrierConfig(
-        tp_distance=3, sl_distance=1, holding_period=3, min_return=0.2)
-    strategy = TradingStrategy(
-        mode="triple_barrier",
-        triple_barrier_config=tb_config)
-    add = 1
-    y_up = np.log(
-        np.array([103, 105, 107, 106, 110, 113])/prices["close"].to_numpy())
-    y_down = - \
-        np.log(np.array([99, 102, 104, 102, 107, 109]) /
-               prices["close"].to_numpy())
-
-    predictions = pd.DataFrame(
-        {"TP_prob": [0.6, 0.5, 0.3, 0.4, 0.1, 0.5], 'y_up': y_up, 'y_down': y_down})
-
-    signals = strategy.generate_signals(
-        predictions, prices, probability_column="TP_prob")
-
-    mm_config = PredictedRangeConfig(min_rr=2.9, holding_period=3)
-    strategy1 = TradingStrategy(
-        mode="predicted_range",
-        predicted_range_config=mm_config)
-
-    signals1 = strategy1.generate_signals(
-        predictions, prices, log_up_column="y_up", log_down_column="y_down")
-    print("Generated Signals:", signals)
-    print("Generated Signals:", signals1)
-
-    strategy1.backtest(predictions,
-                       prices,
-                       probability_column="TP_prob",
-                       log_up_column="y_up",
-                       log_down_column="y_down",
-                       equity=100000.0,
-                       position_size=0.01,)
-    print(strategy1.trade_log)
