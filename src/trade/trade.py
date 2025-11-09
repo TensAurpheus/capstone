@@ -370,12 +370,33 @@ class TradingStrategy:
             100 if equity_array.size else 0.0
         )
 
+        winrate = self.trade_log[self.trade_log['pnl'] > 0].shape[0] / \
+            self.trade_log.shape[0] if self.trade_log.shape[0] > 0 else 0.0
+
+        E = np.array(self.equity_curve)
+        # Clean
+        E = E[~np.isnan(E)]
+        if len(E) < 2 or E[0] <= 0:
+            return np.nan, np.nan, np.nan
+
+        # CAGR
+        cagr = (E[-1] / E[0])**(35040 / len(E)) - 1
+
+        # Max Drawdown
+        run_max = np.maximum.accumulate(E)
+        dd = E / run_max - 1.0         # <= 0
+        mdd = dd.min()                 # most negative drawdown
+
+        calmar = cagr / abs(mdd) if mdd < 0 else np.nan
+
         metrics = {
             "sharpe_ratio": sharpe,
             "max_drawdown": max_drawdown,
             "total_return": total_return,
             "volatility": volatility,
             "final_equity": equity_array[-1] if equity_array.size else 0,
+            "winrate": winrate,
+            'calmar_ratio': calmar
         }
 
         return metrics

@@ -1,334 +1,146 @@
+from sklearn.preprocessing import StandardScaler
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
-
-import matplotlib.pyplot as plt
-import torch
-from torch import Tensor, nn
-from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
-import numpy as np
+from typing import Dict, Iterable, List, Optional
 import pandas as pd
-from sklearn.utils.class_weight import compute_class_weight
+from torch.utils.data import Dataset
+import torch
+import numpy as np
 
 
-ArrayLike = Union[Sequence[float], Sequence[Sequence[float]], Tensor]
+def split_scale(df, target_cols='y', test_size=0.15, val_size=0.15, scale=True):
+    """Split into train/val/test and selectively scale features with StandardScaler."""
+    df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+
+    # --- Ensure target_cols is iterable ---
+    if isinstance(target_cols, str):
+        target_cols = [target_cols]
+
+    n = len(df)
+    test_start = int(n * (1 - test_size))
+    val_start = int(n * (1 - val_size - test_size))
+
+    # --- Define feature columns ---
+    feature_cols = [c for c in df.columns if c not in target_cols]
+
+    # --- Exclude raw OHLC, ATR, and boolean/binary columns from scaling ---
+    exclude_cols = ['open', 'high', 'low', 'close', 'atr_14']
+
+    # Detect binary/boolean columns automatically
+    binary_cols = [c for c in feature_cols if df[c].nunique(dropna=True) <= 2]
+
+    # Form final list of scaled columns
+    scale_cols = [
+        c for c in feature_cols if c not in exclude_cols + binary_cols]
+
+    print(f"[INFO] Using StandardScaler, scaling = {scale}")
+    print(
+        f"[INFO] Total features: {len(feature_cols)} | Scaled: {len(scale_cols)} | Excluded: {exclude_cols}")
+
+    scaler = StandardScaler() if scale else None
+
+    if scale:
+        # Fit only on training part
+        scaler.fit(df[scale_cols].iloc[:test_start])
+        df[scale_cols] = scaler.transform(df[scale_cols])
+        print(f"[OK] Standard scaling applied to {len(scale_cols)} columns.")
+    else:
+        print("[INFO] Scaling skipped (using raw features).")
+
+    # --- Split dataset ---
+    train_df = df.iloc[:val_start].reset_index(drop=True)
+    val_df = df.iloc[val_start:test_start].reset_index(drop=True)
+    test_df = df.iloc[test_start:].reset_index(drop=True)
+
+    print(
+        f"[OK] Split complete → Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+
+    return train_df, val_df, test_df, scaler
 
 
-def _select_device() -> Tuple[torch.device, bool]:
-    if torch.cuda.is_available():
-        count = torch.cuda.device_count()
-        return torch.device("cuda"), count > 1
+class CryptoDataset(Dataset):
+    def __init__(self, df: pd.DataFrame, window_size=64, target='target'):
 
-    return torch.device("cpu"), False
+        self.window_size = window_size
+        self.features = torch.as_tensor(
+            df.drop(columns=target).to_numpy(), dtype=torch.float32)
+        self.targets = torch.as_tensor(
+            df[target].to_numpy(), dtype=torch.float32)
 
+    def __len__(self):
+        return len(self.features) - self.window_size + 1
 
-def _ensure_dir(path: Union[str, Path]) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-class _RNNClassifier(nn.Module):
-    def __init__(
-        self,
-        *,
-        input_size,
-        hidden_size: int,
-        num_layers: int,
-        num_classes: int,
-        dropout: float,
-        bidirectional: bool,
-        rnn_type: str,
-    ) -> None:
-        super().__init__()
-        rnn_cls = {"lstm": nn.LSTM, "gru": nn.GRU}[rnn_type]
-        self.rnn = rnn_cls(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0.0,
-            batch_first=True,
-            bidirectional=bidirectional,
-        )
-        self.dropout = nn.Dropout(dropout)
-        # self.fc = nn.Linear(
-        #     hidden_size * (2 if bidirectional else 1), num_classes*4)
-        # self.fc2 = nn.Linear(num_classes*4, num_classes*2)
-        self.out = nn.Linear(
-            hidden_size * (2 if bidirectional else 1), num_classes)
-
-    def forward(self, inputs: Tensor) -> Tensor:
-        outputs, _ = self.rnn(inputs)
-        last_timestep = outputs[:, -1, :]
-        out = self.dropout(last_timestep)
-        # out = self.fc(out)
-        # out = torch.relu(out)
-        # out = torch.relu(self.fc2(out))
-        out = self.out(out)
-
-        return out
+    def __getitem__(self, idx):
+        X = self.features[idx: idx + self.window_size]
+        y = self.targets[idx + self.window_size - 1]
+        return X, y
 
 
-class _SequenceClassifier:
-    def __init__(
-        self,
-        *,
-        input_size,
-        hidden_size: int,
-        num_layers: int,
-        num_classes: int,
-        dropout: float,
-        bidirectional: bool,
-        rnn_type: str,
-    ) -> None:
-        device, use_parallel = _select_device()
-        self.num_classes = num_classes
-        model = _RNNClassifier(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            num_classes=num_classes,
-            dropout=dropout,
-            bidirectional=bidirectional,
-            rnn_type=rnn_type,
-        )
-        if use_parallel:
-            model = nn.DataParallel(model)
-        self.model = model.to(device)
-        self.device = device
+def triple_barrier_label(df, close='close', high='high', low='low', volatility='atr_14', ku=1.5, kd=1.5, hold=16, labels=None, debug=False):
+    """
+    df: DataFrame with columns close/high/low/volatility (15m bars)
+    ku, kd: upper/lower multipliers 
+    hold: max holding period in bars
+    returns: labels 
+    """
+    closes, highs, lows, volatility = df[close].values, df[high].values, df[low].values, df[volatility].values
 
-    # ------------------------------------------------------------------ training
-    def train(
-        self,
-        train_data: Tuple[ArrayLike, Sequence[int]],
-        val_data: Tuple[ArrayLike, Sequence[int]],
-        *,
-        epochs: int = 50,
-        batch_size: int = 64,
-        lr: float = 1e-3,
-        patience: int = 5,
-        model_path: Union[str, Path] = "artifacts/sequence_model.pt",
-        loss_plot_path: Union[str, Path] = "artifacts/loss_curve.png",
-        num_workers: int = 0,
-        weights: Optional[ArrayLike] = None,
-    ) -> dict:
+    if labels is None:
+        labels = {'higher': 2, 'lower': 1, 'none': 0}
 
-        if weights is None:
-            weights = np.ones(self.num_classes, dtype=np.float32)
+    n = len(df)
+    y = np.zeros(n, dtype=int)
+    b_up = closes + ku * volatility
+    b_dn = closes - kd * volatility
 
-        weights = torch.tensor(
-            weights, device=self.device, dtype=torch.float32)
+    hit = False
 
-        train_loader = DataLoader(
-            train_data,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-        )
-        val_loader = DataLoader(
-            val_data,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-        )
+    for i in range(n - hold):
+        j = 1
+        # barriers in price space, adapted by side
+        while not hit and (j <= hold):
+            if highs[i+j] >= b_up[i]:
+                hit = True
+                y[i] = labels['higher']
+            elif lows[i+j] <= b_dn[i]:
+                hit = True
+                y[i] = labels['lower']
+            j += 1
 
-        criterion = nn.CrossEntropyLoss(weight=weights)
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        if not hit:
+            # expiry label
+            y[i] = labels['none']
+        hit = False
 
-        best_val = float("inf")
-        best_state: Optional[dict] = None
-        bad_epochs = 0
-        train_losses: List[float] = []
-        val_losses: List[float] = []
+    out = df.copy()
+    out['y'] = y
+    if debug:
+        out['b_up'] = b_up
+        out['b_dn'] = b_dn
 
-        for epoch in range(1, epochs + 1):
-            self.model.train()
-            running_loss = 0.0
-            sample_count = 0
-            for features, labels in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
-                features = features.to(self.device)
-                labels = labels.view(-1).long()
-                labels = labels.to(self.device)
-                optimizer.zero_grad()
-                preds = self.model(features)
-                # print(preds.shape, labels.shape)
-                loss = criterion(preds, labels)
-                loss.backward()
-                optimizer.step()
-                batch = labels.size(0)
-                running_loss += loss.item() * batch
-                sample_count += batch
-
-            train_loss = running_loss / max(sample_count, 1)
-            val_loss = self._evaluate(val_loader, criterion)
-            train_losses.append(train_loss)
-            val_losses.append(val_loss)
-
-            if val_loss < best_val - 1e-6:
-                best_val = val_loss
-                bad_epochs = 0
-                best_state = self._state_dict()
-                torch.save(best_state, _ensure_dir(model_path))
-            else:
-                bad_epochs += 1
-                if bad_epochs >= patience:
-                    break
-
-        if best_state is not None:
-            self._load_state_dict(best_state)
-
-        self._plot_losses(train_losses, val_losses, loss_plot_path)
-
-        return {
-            "train_losses": train_losses,
-            "val_losses": val_losses,
-            "best_val_loss": best_val,
-            "epochs_trained": len(train_losses),
-            "model_path": str(model_path),
-            "loss_plot_path": str(loss_plot_path),
-        }
-
-    def _evaluate(self, loader: DataLoader, criterion: nn.Module) -> float:
-        self.model.eval()
-        total = 0.0
-        count = 0
-        with torch.no_grad():
-            for features, labels in loader:
-                features = features.to(self.device)
-                labels = labels.view(-1).long()
-                labels = labels.to(self.device)
-                loss = criterion(self.model(features), labels)
-                batch = labels.size(0)
-                total += loss.item() * batch
-                count += batch
-        return total / max(count, 1)
-
-    def _state_dict(self) -> dict:
-        if isinstance(self.model, nn.DataParallel):
-            return self.model.module.state_dict()
-        return self.model.state_dict()
-
-    def _load_state_dict(self, state_dict: dict) -> None:
-        target = self.model.module if isinstance(
-            self.model, nn.DataParallel) else self.model
-        target.load_state_dict(state_dict)
-
-    def _plot_losses(
-        self,
-        train_losses: Sequence[float],
-        val_losses: Sequence[float],
-        path: Union[str, Path],
-    ) -> None:
-        path = _ensure_dir(path)
-        plt.figure(figsize=(6, 4))
-        epochs = range(1, len(train_losses) + 1)
-        plt.plot(epochs, train_losses, label="train", marker="o")
-        plt.plot(epochs, val_losses, label="val", marker="s")
-        plt.xlabel("epoch")
-        plt.ylabel("loss")
-        plt.legend()
-        plt.grid(True, linestyle="--", alpha=0.4)
-        plt.tight_layout()
-        plt.savefig(path)
-        plt.close()
-
-    # ---------------------------------------------------------------- inference
-    def predict(
-        self,
-        data: ArrayLike,
-        *,
-        batch_size: int = 128,
-    ):
-
-        loader = DataLoader(
-            data,
-            batch_size=batch_size,
-            shuffle=False,
-        )
-
-        preds, probas, y_true = [], [], []
-
-        with torch.no_grad():
-            for X, y in loader:
-                X = X.to(self.device)
-                y_true.extend(y.view(-1).cpu().tolist())
-
-                logits = self.model(X)                 # [B, C] logits
-                probs = torch.softmax(logits, dim=1)   # [B, C] probs
-
-                probas.extend(probs.cpu().tolist())
-                preds.extend(probs.argmax(dim=1).cpu().tolist())
-
-        arr = np.asarray(probas)                       # (N, C)
-        cols = [f"p{i}" for i in range(arr.shape[1])]
-        df = pd.DataFrame(arr, columns=cols)
-        df.insert(0, "prediction", preds)
-        df["true"] = np.asarray(y_true).astype(int)
-
-        return df
+    return out.iloc[:n - hold]
 
 
-class LSTMClassifier(_SequenceClassifier):
-    def __init__(
-        self,
-        *,
-        input_size,
-        hidden_size: int = 128,
-        num_layers: int = 2,
-        num_classes: int = 3,
-        dropout: float = 0.2,
-    ) -> None:
-        super().__init__(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            num_classes=num_classes,
-            dropout=dropout,
-            bidirectional=False,
-            rnn_type="lstm",
-        )
+def min_max_label(df, close='close', high='high', low='low', horizon=16):
+    """
+    df: DataFrame with columns close/high/low (15m bars)
+    horizon: look-ahead horizon in bars
+    returns: Max and Min values within horizon    
+    """
+    closes, highs, lows = df[close].values, df[high].values, df[low].values
 
+    n = len(df)
+    y_high = np.zeros(n, dtype=float)
+    y_low = np.zeros(n, dtype=float)
 
-class BiLSTMClassifier(_SequenceClassifier):
-    def __init__(
-        self,
-        *,
-        input_size,
-        hidden_size: int = 128,
-        num_layers: int = 2,
-        num_classes: int = 3,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            num_classes=num_classes,
-            dropout=dropout,
-            bidirectional=True,
-            rnn_type="lstm",
-        )
+    for i in range(n - horizon):
+        y_high[i] = np.max(np.append(highs[i+1:i+1+horizon], closes[i]))
+        y_low[i] = np.min(np.append(lows[i+1:i+1+horizon], closes[i]))
 
+    out = df.copy()
+    out['y_high'] = np.log(y_high/closes)
+    out['y_low'] = -np.log(y_low/closes)
 
-class GRUClassifier(_SequenceClassifier):
-    def __init__(
-        self,
-        *,
-        input_size,
-        hidden_size: int = 128,
-        num_layers: int = 2,
-        num_classes: int = 3,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            num_classes=num_classes,
-            dropout=dropout,
-            bidirectional=False,
-            rnn_type="gru",
-        )
+    return out.iloc[:n - horizon]
 
 
 if __name__ == "__main__":

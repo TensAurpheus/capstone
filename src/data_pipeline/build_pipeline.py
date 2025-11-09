@@ -100,17 +100,28 @@ def main():
             "--output", f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet"
         ]):
             return
+        
+    # Step 5: Macro + Behavioral + On-chain Merge
+    if ask_step("Run macro_behavior_onchain.py (merge macro, fear&greed, onchain data)"):
+        if not run_script("src/data_pipeline/features/macro_behavior_onchain.py", [
+            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet",
+            "--output", f"data/processed/{symbol_clean}_{args.timeframe}_macro.parquet",
+            "--symbol", args.symbol,
+            "--start", args.start,
+            "--end", args.end
+        ]):
+            return        
 
-    # Step 5: Normalization (ATR-based)
+    # Step 6: Normalization (ATR-based)
     if ask_step("Run normalize.py (ATR-based normalization)"):
         if not run_script("src/data_pipeline/data/normalize.py", [
-            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet",
+            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_macro.parquet",
             "--output", f"data/processed/{symbol_clean}_{args.timeframe}_normalized.parquet",
             "--symbol", args.symbol
         ]):
             return
 
-    # Step 6: Final postprocessing
+    # Step 7: Final postprocessing
     if ask_step("Run data_postprocess.py (final cleanup + encoding)"):
         if not run_script("src/data_pipeline/data/data_postprocess.py", [
             "--symbol", args.symbol,
