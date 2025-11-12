@@ -1,0 +1,12 @@
+{
+  "ku": 3,
+  "kd": 1,
+  "hold": 48,
+  "best_tp_f1_val": 0.5619812761436824,
+  "best_params": {
+    "n_estimators": 600,
+    "max_depth": 12,
+    "min_samples_leaf": 5,
+    "max_features": "sqrt"
+  }
+}

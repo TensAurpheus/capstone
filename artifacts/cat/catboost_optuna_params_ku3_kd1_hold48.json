@@ -1,0 +1,13 @@
+{
+  "ku": 3,
+  "kd": 1,
+  "hold": 48,
+  "best_tp_f1_val": 0.5625366311100691,
+  "best_params": {
+    "depth": 9,
+    "learning_rate": 0.03385524565038519,
+    "l2_leaf_reg": 11.782792454373814,
+    "iterations": 367,
+    "bagging_temperature": 1.7774418600829915
+  }
+}

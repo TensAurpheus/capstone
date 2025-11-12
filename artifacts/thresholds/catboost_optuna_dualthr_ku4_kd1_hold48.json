@@ -1,0 +1,20 @@
+{
+  "ku": 4,
+  "kd": 1,
+  "hold": 48,
+  "model_name": "catboost_optuna",
+  "thr_tp": 0.4736135868671779,
+  "thr_sl": 0.33,
+  "val_tp_f1": 0.6032184655396619,
+  "test_metrics": {
+    "tp_precision": 0.48542325254654023,
+    "tp_recall": 0.5169253787170376,
+    "tp_f1": 0.5006792862965311,
+    "sl_precision": 0.9015709502961627,
+    "sl_recall": 0.7422925236419151,
+    "sl_f1": 0.8142152758396131,
+    "macro_precision_tp_sl": 0.6934971014213515,
+    "macro_recall_tp_sl": 0.6296089511794764,
+    "macro_f1_tp_sl": 0.657447281068072
+  }
+}
