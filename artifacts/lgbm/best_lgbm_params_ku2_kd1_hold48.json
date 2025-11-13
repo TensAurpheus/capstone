@@ -2,13 +2,13 @@
   "ku": 2,
   "kd": 1,
   "hold": 48,
-  "best_tp_f1_val": 0.6519427798182872,
+  "best_tp_f1_val": 0.6554314148906205,
   "best_params": {
     "n_estimators": 300,
     "num_leaves": 31,
-    "max_depth": 12,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8
+    "max_depth": 10,
+    "learning_rate": 0.03,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7
   }
 }
