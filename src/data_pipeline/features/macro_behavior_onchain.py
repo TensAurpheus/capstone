@@ -39,7 +39,8 @@ def load_investing_macro_news(start_date, end_date):
 
     # 2) Parse date & time as naive
     df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
-    df["time"] = df["time"].replace("All Day", "12:00")
+    df = df[df["time"] != "All Day"].copy()
+    df["time"] = df["time"].fillna("00:00")
 
     naive_ts = pd.to_datetime(
         df["date"].dt.strftime("%Y-%m-%d") + " " + df["time"],
