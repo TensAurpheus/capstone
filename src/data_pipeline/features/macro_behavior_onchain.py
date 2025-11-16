@@ -44,6 +44,7 @@ def load_investing_macro_news(start_date, end_date):
         errors="coerce"
     )
     df.dropna(subset=["release_ts"], inplace=True)
+    df["release_ts"] = df["release_ts"].dt.tz_localize("UTC")
 
     # -----------------------------------------
     # 3) Map importance → numerical impact score
@@ -240,9 +241,8 @@ def main(input_path, output_path, start_date, end_date, symbol):
     # -----------------------------
     # 3. Normalize timestamps of external datasets
     # -----------------------------
-
-    # Macro: ensure UTC, DOES NOT shift time
-    macro["release_ts"] = pd.to_datetime(macro["release_ts"], utc=True)
+    # ONLY convert to datetime
+    macro["release_ts"] = pd.to_datetime(macro["release_ts"], errors="coerce")
 
     # Fear & Greed: UNIX timestamps → always UTC
     fg["publish_ts"] = pd.to_datetime(fg["publish_ts"], utc=True)
