@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import requests
 import investpy
+from tzlocal import get_localzone
+from dateutil import tz
 
 
 # ----------------------------------------------------------
@@ -24,41 +26,46 @@ def extract_asset_name(symbol: str):
 # ----------------------------------------------------------
 
 def load_investing_macro_news(start_date, end_date):
-    # -----------------------------------------
-    # 1) Load raw macroeconomic calendar
-    # -----------------------------------------
+    """
+    Load macro news from Investing.com, convert to UTC, build causal sentiment features.
+    """
+
+    # 1) Raw calendar
     df = investpy.economic_calendar(
         countries=["united states"],
         from_date=pd.to_datetime(start_date).strftime("%d/%m/%Y"),
-        to_date=pd.to_datetime(end_date).strftime("%d/%m/%Y")
+        to_date=pd.to_datetime(end_date).strftime("%d/%m/%Y"),
     )
 
-    # -----------------------------------------
-    # 2) Normalize date & time → release timestamp
-    # -----------------------------------------
+    # 2) Parse date & time as naive
     df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
-    df["time"] = df["time"].replace("All Day", "00:00")
+    df["time"] = df["time"].replace("All Day", "12:00")
 
-    df["release_ts"] = pd.to_datetime(
+    naive_ts = pd.to_datetime(
         df["date"].dt.strftime("%Y-%m-%d") + " " + df["time"],
         errors="coerce"
     )
-    df.dropna(subset=["release_ts"], inplace=True)
-    df["release_ts"] = df["release_ts"].dt.tz_localize("UTC")
 
-    # -----------------------------------------
-    # 3) Map importance → numerical impact score
-    # -----------------------------------------
+    # 3) local time -> UTC
+    local_tz = tz.tzlocal()
+    df["release_ts"] = (
+        naive_ts
+        .dt.tz_localize(local_tz, nonexistent="NaT", ambiguous="NaT")
+        .dt.tz_convert("UTC")
+    )
+
+    df = df.dropna(subset=["release_ts"]).copy()
+
+    # 4) Impact score (importance -> 1/2/3)
     df["impact"] = (
         df["importance"]
+        .astype(str)
         .str.lower()
         .map({"low": 1, "medium": 2, "high": 3})
         .fillna(1)
     )
 
-    # -----------------------------------------
-    # 4) Convert actual / previous values to floats
-    # -----------------------------------------
+    # 5) actual / previous -> float
     def to_float(x):
         x = str(x).replace("%", "").replace(",", "").strip()
         if x.replace(".", "", 1).lstrip("-").isdigit():
@@ -68,40 +75,25 @@ def load_investing_macro_news(start_date, end_date):
     df["actual"] = df["actual"].apply(to_float)
     df["previous"] = df["previous"].apply(to_float)
 
-    # -----------------------------------------
-    # 5) Causal surprise: actual vs previous
-    #    (forecast not used because it is unavailable at release time)
-    # -----------------------------------------
+    # 6) Causal surprise: actual vs previous
     df["surprise"] = np.where(
         df["previous"].notna() & df["actual"].notna(),
         (df["actual"] - df["previous"]) / df["previous"].abs().replace(0, np.nan),
-        0.0
+        0.0,
     )
 
-    # -----------------------------------------
-    # 6) Sentiment: surprise scaled by impact
-    # -----------------------------------------
+    # 7) Sentiment + flag
     df["macro_event_sentiment"] = df["surprise"] * df["impact"]
-
-    # -----------------------------------------
-    # 7) Event flag: marks that an event occurred
-    #    (independent of numeric fields)
-    # -----------------------------------------
     df["macro_event_flag"] = 1
 
-    # -----------------------------------------
-    # 8) Keep required columns only
-    # -----------------------------------------
-    macro = df[[
-        "release_ts",
-        "macro_event_sentiment",
-        "macro_event_flag"
-    ]].sort_values("release_ts")
+    # 8) Select columns
+    macro = df[["release_ts", "macro_event_sentiment", "macro_event_flag"]].copy()
 
-    # -----------------------------------------
-    # 9) Time-based rolling window (last 5 calendar days)
-    # -----------------------------------------
+
+    macro = macro.dropna(subset=["release_ts"]).sort_values("release_ts")
     macro = macro.set_index("release_ts")
+    macro = macro[~macro.index.isna()]          
+    macro = macro.sort_index()
 
     macro["macro_event_intensity"] = (
         macro["macro_event_sentiment"]
@@ -109,18 +101,13 @@ def load_investing_macro_news(start_date, end_date):
         .mean()
     )
 
-    # -----------------------------------------
-    # 10) EWMA smoothing (causal)
-    # -----------------------------------------
     macro["macro_event_intensity_smooth"] = (
         macro["macro_event_intensity"]
         .ewm(span=5, adjust=False)
         .mean()
     )
 
-    # -----------------------------------------
-    # 11) Return as a regular DataFrame
-    # -----------------------------------------
+    # 10) Reset index
     macro = macro.reset_index()
 
     return macro
