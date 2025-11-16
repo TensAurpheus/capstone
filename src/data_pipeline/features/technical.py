@@ -104,7 +104,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["z_volume"] = (df["volume"] - df["volume"].rolling(32).mean()) / df["volume"].rolling(32).std()
 
     # === VWAP and distance ===
-    if HAS_PTA and all(c in df.columns for c in ["high", "low", "close", "volume"]):
+    if HAS_PTA:
         df["vwap"] = pta.vwap(df["high"], df["low"], df["close"], df["volume"])
         df["vwap_distance"] = (df["close"] - df["vwap"]) / df["vwap"]
 
@@ -117,7 +117,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # === Rolling volatility ===
     df["roll_std_16"] = df["log_return_15m"].rolling(16).std()
     df["roll_std_32"] = df["log_return_15m"].rolling(32).std()
-    
+
     # === Funding Rate Context ===
     if "funding_rate" in df.columns:
         df["funding_bias"] = np.sign(df["funding_rate"]).astype(int)
@@ -129,45 +129,36 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["session"] = df["hour"].map(assign_session)
     df["date"] = df.index.date
 
-    # === VWAP per session (stable transform version) ===
-    if all(c in df.columns for c in ["high", "low", "close", "volume"]):
-        print("[INFO] Computing session-level VWAP...")
-        try:
-            def compute_session_vwap(group):
-                price = (group["high"] + group["low"] + group["close"]) / 3
-                cum_pv = (price * group["volume"]).cumsum()
-                cum_vol = group["volume"].cumsum().replace(0, np.nan)
-                return cum_pv / cum_vol
+    # === CAUSAL Session VWAP ===
+    print("[INFO] Computing causal session VWAP...")
+    price = (df["high"] + df["low"] + df["close"]) / 3
 
-            vwap_session = df.groupby(["date", "session"], group_keys=False).apply(compute_session_vwap)
-            vwap_session.index = df.index 
-            df["vwap_session"] = vwap_session
-
-        except Exception as e:
-            print(f"[WARN] Session VWAP skipped due to error: {e}")
-    else:
-        print("[WARN] Session VWAP skipped — missing OHLCV columns.")
-
-    # === Session-level statistics ===
-    session_stats = (
+    df["vwap_session"] = (
         df.groupby(["date", "session"])
-        .agg({
-            "volume": "mean",
-            "log_return_15m": "mean",
-            "roll_std_16": "mean"
-        })
-        .rename(columns={
-            "volume": "session_vol_mean",
-            "log_return_15m": "session_return_mean",
-            "roll_std_16": "session_volatility"
-        })
-        .reset_index()
+          .apply(lambda g: (price.loc[g.index] * g["volume"]).cumsum() /
+                           g["volume"].cumsum().replace(0, np.nan))
+          .droplevel([0, 1])
     )
-    df = df.reset_index().merge(session_stats, on=["date", "session"], how="left")
+
+    # === CAUSAL Session Statistics (expanding) ===
+    print("[INFO] Computing causal session statistics...")
+    g = df.groupby(["date", "session"])
+
+    df["session_vol_mean"] = (
+        g["volume"].expanding().mean().reset_index(level=[0,1], drop=True)
+    )
+
+    df["session_return_mean"] = (
+        g["log_return_15m"].expanding().mean().reset_index(level=[0,1], drop=True)
+    )
+
+    df["session_volatility"] = (
+        g["roll_std_16"].expanding().mean().reset_index(level=[0,1], drop=True)
+    )
 
     df.drop(columns=["hour"], inplace=True, errors="ignore")
 
-    print("[OK] Technical indicators + sessions + VWAP added.")
+    print("[OK] Technical indicators + causal session features added.")
     return df
 
 
@@ -185,6 +176,11 @@ def main():
     df = pd.read_parquet(input_path)
 
     df = add_technical_indicators(df)
+
+    # Ensure timestamp column exists (parquet does not preserve index)
+    if isinstance(df.index, pd.DatetimeIndex):
+        df = df.reset_index().rename(columns={"index": "timestamp"})
+
 
     # === Save ===
     output_path.parent.mkdir(parents=True, exist_ok=True)

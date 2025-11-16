@@ -1,6 +1,5 @@
+# patterns.py
 """
-patterns.py
----------------------------------
 Detects key price-action patterns and market structure features.
 
 Usage:
@@ -27,7 +26,6 @@ except ImportError:
 
 # === A. CANDLESTICK PATTERNS ===
 def detect_candlestick_patterns(df: pd.DataFrame) -> pd.DataFrame:
-    """Detect key reversal candlestick patterns using TA-Lib."""
     print("[INFO] Detecting candlestick patterns...")
 
     if HAS_TALIB:
@@ -46,7 +44,6 @@ def detect_candlestick_patterns(df: pd.DataFrame) -> pd.DataFrame:
 
 # === B. FRACTALS & STRONG LEVELS ===
 def detect_fractals_and_levels(df: pd.DataFrame) -> pd.DataFrame:
-    """Detect fractal points and confirm strong highs/lows."""
     print("[INFO] Detecting fractals and structure levels...")
 
     df["fract_high"] = (df["high"] > df["high"].shift(1)) & (df["high"] > df["high"].shift(-1))
@@ -58,26 +55,29 @@ def detect_fractals_and_levels(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# === C. FAIR VALUE GAPS (FVG) ===
+# === C. CAUSAL FAIR VALUE GAPS ===
 def detect_fvg(df: pd.DataFrame) -> pd.DataFrame:
-    """Detect fair value gaps (bullish/bearish imbalance)."""
-    print("[INFO] Detecting Fair Value Gaps (FVG)...")
+    print("[INFO] Detecting causal FVG...")
 
-    df["bullish_fvg"] = df["low"].shift(1) > df["high"].shift(-1)
-    df["bearish_fvg"] = df["high"].shift(1) < df["low"].shift(-1)
+    # FVG requires previous two candles and current candle only
+    # bullish_fvg occurs if: low[t-2] > high[t]
+    bullish = (df["low"].shift(2) > df["high"])  # available at candle t
+    bearish = (df["high"].shift(2) < df["low"])  # available at candle t
 
-    df["fvg_gap"] = np.where(df["bullish_fvg"],
-                             df["low"].shift(1) - df["high"].shift(-1),
-                             np.where(df["bearish_fvg"],
-                                      df["high"].shift(-1) - df["low"].shift(1),
-                                      0))
+    # Gap size
+    gap = np.where(bullish, df["low"].shift(2) - df["high"],
+                   np.where(bearish, df["high"] - df["low"].shift(2), 0))
+
+    # Causal features (no leakage)
+    df["bullish_fvg_feat"] = bullish.astype(int)
+    df["bearish_fvg_feat"] = bearish.astype(int)
+    df["fvg_gap_feat"] = gap
 
     return df
 
 
 # === D. PDA / TDA ZONES ===
 def compute_pda_zones(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute premium/discount arrays relative to equilibrium."""
     print("[INFO] Calculating PDA (Premium / Discount Arrays)...")
 
     df["rolling_high"] = df["high"].rolling(100, min_periods=1).max()
@@ -90,7 +90,6 @@ def compute_pda_zones(df: pd.DataFrame) -> pd.DataFrame:
 
 # === E. BREAKOUTS ===
 def detect_breakouts(df: pd.DataFrame) -> pd.DataFrame:
-    """Detect bullish/bearish breakouts with volume confirmation."""
     print("[INFO] Detecting breakouts (GG-Shot)...")
 
     df["breakout_bullish"] = (df["close"] > df["rolling_high"].shift(1)) & (
@@ -103,9 +102,8 @@ def detect_breakouts(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# === F. MAIN FUNCTION ===
+# === F. MASTER FUNCTION ===
 def generate_patterns(df: pd.DataFrame) -> pd.DataFrame:
-    """Combine all pattern detections into one enriched dataset."""
     print("[INFO] Detecting price-action and structure patterns...")
 
     df = detect_candlestick_patterns(df)
@@ -114,21 +112,26 @@ def generate_patterns(df: pd.DataFrame) -> pd.DataFrame:
     df = compute_pda_zones(df)
     df = detect_breakouts(df)
 
-    drop_cols = ["bullish_fvg", "bearish_fvg", "fract_high", "fract_low"]
-    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
-
-    # Aggregate info
-    pattern_cols = [
+    # Pattern columns
+    base_cols = [
         "pattern_bullish_engulf", "pattern_bearish_engulf", "pattern_harami",
-        "pattern_hammer", "pattern_inverted_hammer","strong_high", "strong_low",
+        "pattern_hammer", "pattern_inverted_hammer", "strong_high", "strong_low",
         "breakout_bullish", "breakout_bearish"
     ]
 
-    # Convert True/False to int for summing
-    for c in pattern_cols:
+    fvg_cols = ["bullish_fvg_feat", "bearish_fvg_feat"]
+
+    # Ensure columns exist
+    for c in base_cols + fvg_cols:
+        if c not in df.columns:
+            df[c] = 0
+
+    # Convert to int
+    for c in base_cols + fvg_cols:
         df[c] = df[c].astype(int)
 
-    df["pattern_count"] = df[pattern_cols].sum(axis=1)
+    # Aggregate patterns
+    df["pattern_count"] = df[base_cols + fvg_cols].sum(axis=1)
     df["pattern_active"] = df["pattern_count"] > 0
 
     print("[OK] Pattern detection completed.")
@@ -159,4 +162,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
