@@ -43,70 +43,89 @@ def detect_candlestick_patterns(df):
 
 
 # =====================================================================
-# B) Fractals (causal) + protected swings (ICT)
+# B) ICT MARKET STRUCTURE (pivot → swing → BOS → CHoCH → MSS)
 # =====================================================================
-def detect_fractals_and_market_structure(df):
-    print("[INFO] Detecting fractals, protected swings, BOS/CHoCH/MSS...")
+def apply_ict_market_structure(df):   # <<< NEW FUNCTION (extracted from generate_patterns)
+    print("[INFO] Applying ICT market structure...")
 
-    # ===== 1) Causal fractals =====
-    df["fract_high"] = (
-        (df["high"].shift(1) > df["high"].shift(2)) &   # t-1 > t-2
-        (df["high"] > df["high"].shift(1))              # t > t-1
-    ).fillna(0).astype(bool)
+    # ---------------------------------------------------------------
+    # 1) TRUE CAUSAL PIVOTS
+    # ---------------------------------------------------------------
+    df["swing_high"] = (
+        (df["high"].shift(1) > df["high"].shift(2)) &
+        (df["high"].shift(1) > df["high"])
+    ).fillna(False)
 
-    df["fract_low"] = (
-        (df["low"].shift(1) < df["low"].shift(2)) &     # t-1 < t-2
-        (df["low"] < df["low"].shift(1))                # t < t-1
-    ).fillna(0).astype(bool)
+    df["swing_low"] = (
+        (df["low"].shift(1) < df["low"].shift(2)) &
+        (df["low"].shift(1) < df["low"])
+    ).fillna(False)
 
-    # ===== 2) Protected swings =====
-    df["protected_high"] = (
-        df["fract_high"] &
-        (df["high"] > df["high"].shift(2))
-    ).fillna(0).astype(bool)
+    # ---------------------------------------------------------------
+    # OPTIONAL IMPROVEMENT — clean leading garbage swings
+    # ---------------------------------------------------------------  # <<< ADDED
+    first_high = df["swing_high"].idxmax()
+    first_low  = df["swing_low"].idxmax()
+    first_real = min(first_high, first_low)
+    df.loc[:first_real, ["swing_high", "swing_low"]] = False
 
-    df["protected_low"] = (
-        df["fract_low"] &
-        (df["low"] < df["low"].shift(2))
-    ).fillna(0).astype(bool)
+    # ---------------------------------------------------------------
+    # 2) PROTECTED SWINGS
+    # ---------------------------------------------------------------
+    df["last_swing_high"] = np.where(df["swing_high"], df["high"].shift(1), np.nan)
+    df["last_swing_low"]  = np.where(df["swing_low"],  df["low"].shift(1),  np.nan)
 
-    # ===== 3) BOS (break of structure) =====
-    df["bos_bullish"] = (
-        df["protected_high"].shift(1).fillna(0).astype(bool) &
-        (df["close"] > df["high"].shift(1))
-    ).fillna(0).astype(bool)
+    df["last_swing_high"] = df["last_swing_high"].ffill()
+    df["last_swing_low"]  = df["last_swing_low"].ffill()
 
-    df["bos_bearish"] = (
-        df["protected_low"].shift(1).fillna(0).astype(bool) &
-        (df["close"] < df["low"].shift(1))
-    ).fillna(0).astype(bool)
+    # ---------------------------------------------------------------
+    # 3) BOS
+    # ---------------------------------------------------------------
+    
+    df["bos_bullish"] = (df["close"] > df["last_swing_high"].shift(1)).fillna(False)
+    df["bos_bearish"] = (df["close"] < df["last_swing_low"].shift(1)).fillna(False)
 
-    # ===== 4) CHoCH =====
-    prev_up = df["bos_bullish"].shift(1).fillna(0).astype(bool)
-    prev_down = df["bos_bearish"].shift(1).fillna(0).astype(bool)
+    df["bos_bullish"] = df["bos_bullish"].astype(bool)
+    df["bos_bearish"] = df["bos_bearish"].astype(bool)
+    df = df.infer_objects(copy=False)
 
-    df["choch_bullish"] = (df["bos_bullish"] & prev_down).fillna(0).astype(bool)
-    df["choch_bearish"] = (df["bos_bearish"] & prev_up).fillna(0).astype(bool)
+    df["bos_bullish"] = df["bos_bullish"].astype("bool")
+    df["bos_bearish"] = df["bos_bearish"].astype("bool")
 
-    # ===== 5) MSS (internal structure shift) =====
-    df["mss_bullish"] = (
-        df["fract_low"].shift(1).fillna(0).astype(bool) &
-        (df["close"] > df["high"].shift(2))
-    ).fillna(0).astype(bool)
+    # ---------------------------------------------------------------
+    # 4) CHoCH
+    # ---------------------------------------------------------------
+    prev_bull = df["bos_bullish"].shift(1)
+    prev_bull = prev_bull.where(prev_bull.notna(), False)
 
-    df["mss_bearish"] = (
-        df["fract_high"].shift(1).fillna(0).astype(bool) &
-        (df["close"] < df["low"].shift(2))
-    ).fillna(0).astype(bool)
+    prev_bear = df["bos_bearish"].shift(1)
+    prev_bear = prev_bear.where(prev_bear.notna(), False)
+
+    df["choch_bullish"] = df["bos_bullish"] & prev_bear
+    df["choch_bearish"] = df["bos_bearish"] & prev_bull
+
+    # ---------------------------------------------------------------
+    # 5) MSS — internal HH/LL
+    # ---------------------------------------------------------------
+    int_high = df["high"].rolling(5, min_periods=2).max()
+    int_low  = df["low"].rolling(5, min_periods=2).min()
+
+    df["mss_bullish"] = (df["close"] > int_high.shift(1)).fillna(False)
+    df["mss_bearish"] = (df["close"] < int_low.shift(1)).fillna(False)
 
     return df
 
 
 # =====================================================================
-# C) Fair Value Gaps (causal)
+# C) Fair Value Gaps (ICT-style causal)
 # =====================================================================
 def detect_fvg(df):
     print("[INFO] Detecting causal Fair Value Gaps...")
+
+    # ICT FVG convention:
+    # bullish: low[t] > high[t-2]
+    # causal version uses the same logic reversed in time
+    # (your version is equivalent but slightly different ordering)
 
     bullish = (df["low"].shift(2) > df["high"])
     bearish = (df["high"].shift(2) < df["low"])
@@ -149,8 +168,11 @@ def detect_breakouts(df):
 
     vol_ma = df["volume"].rolling(10).mean()
 
-    df["breakout_bullish"] = (df["close"] > df["rolling_high"].shift(1)) & (df["volume"] > vol_ma)
-    df["breakout_bearish"] = (df["close"] < df["rolling_low"].shift(1)) & (df["volume"] > vol_ma)
+    rolling_high = df["high"].rolling(100, min_periods=1).max() 
+    rolling_low  = df["low"].rolling(100, min_periods=1).min() 
+
+    df["breakout_bullish"] = (df["close"] > rolling_high.shift(1)) & (df["volume"] > vol_ma)
+    df["breakout_bearish"] = (df["close"] < rolling_low.shift(1)) & (df["volume"] > vol_ma)
 
     return df
 
@@ -164,21 +186,24 @@ def generate_patterns(df):
     assert "timestamp" in df.columns, "❌ Missing timestamp BEFORE patterns.py!"
 
     df = detect_candlestick_patterns(df)
-    df = detect_fractals_and_market_structure(df)
+    df = apply_ict_market_structure(df)
     df = detect_fvg(df)
     df = compute_pda_zones(df)
     df = detect_breakouts(df)
 
+    # Final checks
     assert "timestamp" in df.columns, "❌ Timestamp LOST inside patterns.py!"
 
-    # Binary pattern count
+    # Convert booleans → ints
     pattern_cols = [
         "pattern_bullish_engulf", "pattern_bearish_engulf",
         "pattern_harami", "pattern_hammer", "pattern_inverted_hammer",
-        "protected_high", "protected_low",
+
+        "swing_high", "swing_low",
         "bos_bullish", "bos_bearish",
         "choch_bullish", "choch_bearish",
         "mss_bullish", "mss_bearish",
+
         "bullish_fvg", "bearish_fvg",
         "breakout_bullish", "breakout_bearish"
     ]
