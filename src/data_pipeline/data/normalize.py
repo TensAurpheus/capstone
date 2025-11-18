@@ -23,7 +23,8 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         print("[WARN] 'atr_14' not found — using rolling std(14) as proxy.")
         df["atr_14"] = df["close"].rolling(14).std()
 
-    atr = df["atr_14"].replace(0, np.nan)
+    atr = df["atr_14"].replace(0, np.nan)   
+    atr = atr.clip(lower=1e-8)              
 
     # =====================================================
     # === SCALE-FREE TRANSFORMATIONS ======================
@@ -32,12 +33,6 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         "ema_20": (df["close"] - df["ema_20"]) / atr,
         "ema_50": (df["close"] - df["ema_50"]) / atr,
         "ema_200": (df["close"] - df["ema_200"]) / atr,
-        "macd": df["macd"] / atr,
-        "macd_signal": df["macd_signal"] / atr,
-        "macd_hist": df["macd_hist"] / atr,
-        "bb_bbm": (df["close"] - df["bb_bbm"]) / atr,
-        "bb_bbh": (df["close"] - df["bb_bbh"]) / atr,
-        "bb_bbl": (df["close"] - df["bb_bbl"]) / atr,
         "rolling_high": (df["rolling_high"] - df["close"]) / atr,
         "rolling_low": (df["close"] - df["rolling_low"]) / atr,
         "equilibrium": (df["close"] - df["equilibrium"]) / atr,
@@ -51,15 +46,45 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = expr
 
- 
     # ATR-relative volatility metrics
     df["atr_pct"] = df["atr_14"] / df["close"]
     df["range_atr"] = (df["high"] - df["low"]) / df["atr_14"]
-    df["body_atr"] = (df["close"] - df["open"]) / df["atr_14"]           
+    df["body_atr"] = (df["close"] - df["open"]) / df["atr_14"]
 
     # FVG gap normalization
     if "fvg_gap" in df.columns and df["fvg_gap"].nunique() > 2:
         df["fvg_gap"] = df["fvg_gap"] / atr
+
+    # =====================================================
+    # === ADD PPO  ========================================
+    # =====================================================
+    if {"macd", "macd_signal", "macd_hist"}.issubset(df.columns):
+        ema_fast = df["close"].ewm(span=12, adjust=False).mean()
+        ema_slow = df["close"].ewm(span=26, adjust=False).mean()
+
+        df["ppo"] = (ema_fast - ema_slow) / ema_slow.clip(lower=1e-12)
+        df["ppo_signal"] = df["ppo"].ewm(span=9, adjust=False).mean()
+        df["ppo_hist"] = df["ppo"] - df["ppo_signal"]
+
+        df.drop(columns=["macd", "macd_signal", "macd_hist"], inplace=True)
+        print("[INFO] Replaced MACD with PPO.")
+
+    # =====================================================
+    # === ADD BB_Z + %B ===================================
+    # =====================================================
+    if {"bb_bbm", "bb_bbh", "bb_bbl"}.issubset(df.columns):
+
+        #### ADDED BLOCK ####
+        k = 2.0
+        bb_sigma = ((df["bb_bbh"] - df["bb_bbl"]) / (2 * k)).clip(lower=1e-12)
+
+        df["bb_z"] = (df["close"] - df["bb_bbm"]) / bb_sigma
+        df["bb_percB"] = (df["close"] - df["bb_bbl"]) / (
+            df["bb_bbh"] - df["bb_bbl"]
+        ).clip(lower=1e-12)
+
+        df.drop(columns=["bb_bbm", "bb_bbh", "bb_bbl"], inplace=True)
+        print("[INFO] Replaced BB values with bb_z and %B.")
 
     # Handle inf/nan
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
