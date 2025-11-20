@@ -96,6 +96,8 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["bb_width"] = (df["bb_bbh"] - df["bb_bbl"]) / df["bb_bbm"]
 
     df["atr_14"] = pta.atr(df["high"], df["low"], df["close"], length=14)
+    df["atr_200"] = pta.atr(df["high"], df["low"], df["close"], length=200)
+    df["atr_vol_regime"] = df["atr_14"] / df["atr_200"].clip(lower=1e-8)
 
     # === Volume-based ===
     if "volume" in df.columns:
@@ -159,8 +161,171 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df.drop(columns=["hour"], inplace=True, errors="ignore")
 
     print("[OK] Technical indicators + causal session features added.")
-    return df
 
+    # ============================================================
+    # === Higuchi Fractal Dimension (FD) — CAUSAL, NO LEAK =======
+    # ============================================================
+
+    print("[INFO] Computing Fractal Dimension (Higuchi FD)...")
+
+    def higuchi_fd(series, kmax=5):
+        y = np.array(series, dtype=float)
+        N = len(y)
+        Lk = []
+        for k in range(1, kmax + 1):
+            Lm = []
+            for m in range(k):
+                idx = np.arange(m, N, k)
+                if len(idx) < 2:
+                    continue
+                Lm_val = np.sum(np.abs(np.diff(y[idx]))) * (N - 1) / (len(idx) * k)
+                Lm.append(Lm_val)
+            if Lm:
+                Lk.append(np.mean(Lm))
+        if len(Lk) < 2:
+            return np.nan
+        logs = np.log(1.0 / np.arange(1, len(Lk) + 1))
+        return np.polyfit(logs, np.log(Lk), 1)[0]
+
+    fd_window = 96  # 1 day at 15m
+    close_vals = df["close"].values
+    fd_vals = [np.nan] * len(df)
+
+    for i in range(fd_window, len(df)):
+        fd_vals[i] = higuchi_fd(close_vals[i - fd_window:i])
+
+    df["fd_96"] = fd_vals
+
+    # === FD slope ======================================================
+    df["fd_slope"] = df["fd_96"].diff()
+
+    print("[INFO] FD computed.")
+
+
+    # ============================================================
+    # === EMA smoothing ==========================================
+    # ============================================================
+    df["fd_ema_12"] = df["fd_96"].ewm(span=12, adjust=False, min_periods=12).mean()
+    df["fd_ema_24"] = df["fd_96"].ewm(span=24, adjust=False, min_periods=24).mean()
+    df["fd_trend_strength"] = df["fd_96"] - df["fd_ema_24"]
+
+
+    # ============================================================
+    # === Adaptive FD Regime (CAUSAL QUANTILE) ==================
+    # ============================================================
+
+    print("[INFO] Computing causal FD regime with expanding quantile...")
+
+    df["fd_threshold_causal"] = (
+        df["fd_ema_24"]
+        .expanding(min_periods=96)
+        .quantile(0.70)
+    )
+
+    df["fd_regime"] = (df["fd_ema_24"] >= df["fd_threshold_causal"]).astype(int)
+
+    # regime transitions (very strong feature)
+    df["fd_regime_switch"] = df["fd_regime"].diff().fillna(0)
+
+    last_thr = df["fd_threshold_causal"].iloc[-1]
+    print(f"[INFO] Latest causal FD regime threshold = {last_thr:.4f}")
+
+
+    # ============================================================
+    # === FD × Volatility interaction (using ATR-200) ============
+    # ============================================================
+
+    atr = df["atr_200"].replace(0, np.nan).clip(lower=1e-8)
+
+    df["fd_volatility"] = df["fd_96"] * atr
+    df["fd_vol_ratio"] = df["fd_96"] / atr
+    df["fd_vol_slope"] = df["fd_slope"] * atr
+
+    # normalize slope by ATR (strong feature)
+    df["fd_slope_atr_norm"] = df["fd_slope"] / atr
+
+
+    # ============================================================
+    # === FD Entropy (local FD uncertainty) =======================
+    # ============================================================
+
+    df["fd_entropy"] = (
+        df["fd_slope"]
+        .rolling(96, min_periods=48)
+        .std()
+    )
+
+
+    # ============================================================
+    # === Volatility-adjusted FD (Fractal Market Hypothesis) =====
+    # ============================================================
+
+    df["fd_vol_adjusted"] = df["fd_96"] / (1 + df["atr_vol_regime"])
+
+
+    # ============================================================
+    # === Robust FD Normalization (MAD Z-score) ==================
+    # ============================================================
+
+    print("[INFO] Computing robust FD normalization...")
+
+    fd_cols = [
+        "fd_96",
+        "fd_ema_12",
+        "fd_ema_24",
+        "fd_trend_strength",
+        "fd_slope",
+        "fd_slope_atr_norm",
+        "fd_volatility",
+        "fd_vol_ratio",
+        "fd_vol_slope",
+        "fd_entropy",
+        "fd_vol_adjusted",
+    ]
+
+    win = 96 * 10  # 10 days
+    for col in fd_cols:
+        if col in df.columns:
+            median = df[col].rolling(win, min_periods=win//2).median()
+            mad = (np.abs(df[col] - median)).rolling(win, min_periods=win//2).median()
+            mad = mad.replace(0, np.nan)
+
+            df[col + "_robust_z"] = (
+                (df[col] - median) / (1.4826 * mad)
+            ).clip(-5, 5)
+
+    print("[OK] FD block enhanced and normalized.")
+    
+    # === Daily & Weekly High/Low (CAUSAL: previous day/week) ============
+    print("[INFO] Computing Daily and Weekly High/Low (previous)...")
+
+    # ----- Previous Daily High/Low -----
+    daily = df.resample("1D").agg({"high": "max", "low": "min"})
+    daily.columns = ["daily_high", "daily_low"]
+
+    # робимо ці рівні "рівнями вчорашнього дня"
+    daily[["daily_high", "daily_low"]] = daily[["daily_high", "daily_low"]].shift(1)
+
+    df["date"] = df.index.normalize()
+    df = df.merge(daily, left_on="date", right_index=True, how="left")
+
+    df["daily_high"] = df["daily_high"].ffill()
+    df["daily_low"] = df["daily_low"].ffill()
+
+    # ----- Previous Weekly High/Low -----
+    # групуємо по тижнях (PeriodIndex), щоб було стабільно
+    weekly = df.groupby(df.index.to_period("W")).agg({"high": "max", "low": "min"})
+    weekly.columns = ["weekly_high", "weekly_low"]
+
+    # знову ж робимо "минулого тижня"
+    weekly = weekly.shift(1)
+
+    df["week_period"] = df.index.to_period("W")
+    df = df.merge(weekly, left_on="week_period", right_index=True, how="left")
+
+    df["weekly_high"] = df["weekly_high"].ffill()
+    df["weekly_low"] = df["weekly_low"].ffill()
+    return df
 
 # === CLI entrypoint ===
 def main():

@@ -14,32 +14,32 @@ from pathlib import Path
 
 def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Convert dataset to scale-free features (ATR-relative).
+    Convert dataset to scale-free features (ATR-relative) using long-term ATR (atr_200).
     """
     print("\n=== SCALE-FREE NORMALIZATION STARTED ===")
 
-    # --- Ensure ATR is available ---
-    if "atr_14" not in df.columns:
-        print("[WARN] 'atr_14' not found — using rolling std(14) as proxy.")
-        df["atr_14"] = df["close"].rolling(14).std()
+    # =====================================================
+    # === ATR — MAIN NORMALIZER (USE ATR-200) ============
+    # =====================================================
+    if "atr_200" not in df.columns:
+        raise ValueError("atr_200 is required but missing. Compute it in technical.py.")
 
-    atr = df["atr_14"].replace(0, np.nan)   
-    atr = atr.clip(lower=1e-8)              
+    atr = df["atr_200"].replace(0, np.nan).clip(lower=1e-8)
 
     # =====================================================
     # === SCALE-FREE TRANSFORMATIONS ======================
     # =====================================================
     mappings = {
-        "ema_20": (df["close"] - df["ema_20"]) / atr,
-        "ema_50": (df["close"] - df["ema_50"]) / atr,
-        "ema_200": (df["close"] - df["ema_200"]) / atr,
+        "ema_20":      (df["close"] - df["ema_20"]) / atr,
+        "ema_50":      (df["close"] - df["ema_50"]) / atr,
+        "ema_200":     (df["close"] - df["ema_200"]) / atr,
         "rolling_high": (df["rolling_high"] - df["close"]) / atr,
         "rolling_low": (df["close"] - df["rolling_low"]) / atr,
         "equilibrium": (df["close"] - df["equilibrium"]) / atr,
         "vwap_session": (df["close"] - df["vwap_session"]) / atr,
-        "vwap": (df["close"] - df["vwap"]) / atr,
-        "volume": np.log1p(df["volume"]),
-        "z_volume": df["z_volume"],
+        "vwap":         (df["close"] - df["vwap"]) / atr,
+        "volume":       np.log1p(df["volume"]),
+        "z_volume":     df["z_volume"],
     }
 
     for col, expr in mappings.items():
@@ -47,16 +47,47 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = expr
 
     # ATR-relative volatility metrics
-    df["atr_pct"] = df["atr_14"] / df["close"]
-    df["range_atr"] = (df["high"] - df["low"]) / df["atr_14"]
-    df["body_atr"] = (df["close"] - df["open"]) / df["atr_14"]
+    df["atr_pct"] = df["atr_200"] / df["close"]
+    df["range_atr"] = (df["high"] - df["low"]) / df["atr_200"]
+    df["body_atr"] = (df["close"] - df["open"]) / df["atr_200"]
 
-    # FVG gap normalization
+    # =====================================================
+    # === Distance to Daily/Weekly High/Low (ATR200 norm)
+    # =====================================================
+    df["dist_daily_high"] = (df["close"] - df["daily_high"]) / atr
+    df["dist_daily_low"]  = (df["daily_low"] - df["close"]) / atr
+
+    df["dist_weekly_high"] = (df["close"] - df["weekly_high"]) / atr
+    df["dist_weekly_low"]  = (df["weekly_low"] - df["close"]) / atr
+
+    df.drop(columns=["daily_high", "daily_low", "weekly_high", "weekly_low"], inplace=True)
+
+    # =====================================================
+    # === FVG gap normalization ===========================
+    # =====================================================
     if "fvg_gap" in df.columns and df["fvg_gap"].nunique() > 2:
         df["fvg_gap"] = df["fvg_gap"] / atr
 
     # =====================================================
-    # === ADD PPO  ========================================
+    # === ATR Volatility Regime ===========================
+    # =====================================================
+    if "atr_vol_regime" in df.columns:
+        df["atr_vol_regime"] = df["atr_vol_regime"] / atr
+
+    if "atr_vol_regime" in df.columns:
+        win = 96 * 10
+        eps = 1e-8
+
+        roll_mean = df["atr_vol_regime"].rolling(win, min_periods=win//2).mean()
+        roll_std  = df["atr_vol_regime"].rolling(win, min_periods=win//2).std()
+
+        df["atr_vol_regime_z"] = (
+            (df["atr_vol_regime"] - roll_mean) /
+            roll_std.replace(0, eps)
+        ).clip(-5, 5)
+
+    # =====================================================
+    # === PPO instead of MACD =============================
     # =====================================================
     if {"macd", "macd_signal", "macd_hist"}.issubset(df.columns):
         ema_fast = df["close"].ewm(span=12, adjust=False).mean()
@@ -70,36 +101,33 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         print("[INFO] Replaced MACD with PPO.")
 
     # =====================================================
-    # === ADD BB_Z + %B ===================================
+    # === Replace BB with Z-score form ====================
     # =====================================================
     if {"bb_bbm", "bb_bbh", "bb_bbl"}.issubset(df.columns):
-
-        #### ADDED BLOCK ####
         k = 2.0
         bb_sigma = ((df["bb_bbh"] - df["bb_bbl"]) / (2 * k)).clip(lower=1e-12)
 
         df["bb_z"] = (df["close"] - df["bb_bbm"]) / bb_sigma
-        df["bb_percB"] = (df["close"] - df["bb_bbl"]) / (
-            df["bb_bbh"] - df["bb_bbl"]
-        ).clip(lower=1e-12)
+        df["bb_percB"] = (df["close"] - df["bb_bbl"]) / \
+            (df["bb_bbh"] - df["bb_bbl"]).clip(lower=1e-12)
 
         df.drop(columns=["bb_bbm", "bb_bbh", "bb_bbl"], inplace=True)
         print("[INFO] Replaced BB values with bb_z and %B.")
 
-    # Handle inf/nan
+    # =====================================================
+    # === NaN handling (NO FD BACKFILL) ===================
+    # =====================================================
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.ffill(inplace=True)
-    df.bfill(inplace=True)
 
-    # Drop unstable EMA region
-    min_period = 199  
-    df = df.iloc[min_period:].reset_index(drop=True)
-    print(f"[INFO] Dropped first {min_period} rows (unstable EMA region).")
+    non_fd_cols = [col for col in df.columns if not col.startswith("fd_")]
+    df[non_fd_cols] = df[non_fd_cols].ffill()
 
-    print("[OK] Scale-free normalization complete.")
-    print("\n=== NORMALIZATION COMPLETED ===")
+    # Drop unstable region
+    df = df.iloc[200:].reset_index(drop=True)
+    print("[INFO] Dropped first 200 rows (ATR200 warm-up).")
+
+    print("[OK] Scale-free normalization complete.\n")
     return df
-
 
 def main():
     parser = argparse.ArgumentParser(description="ATR-based normalization for ML models")
