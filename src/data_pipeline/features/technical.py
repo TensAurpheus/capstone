@@ -38,19 +38,19 @@ except ImportError:
 def assign_session(hour):
     """
     Assigns trading session by UTC hour:
-      - Asia: 01–06
-      - Frankfurt: 07
-      - London: 08–14
-      - NewYork: 15–21
+      - Asia: 01:00–06:59
+      - Frankfurt: 07:00-07:59
+      - London: 08:00–12:59
+      - NewYork: 13:00–21:59
       - OffHours: others
     """
     if 1 <= hour <= 6:
         return "Asia"
     elif hour == 7:
         return "Frankfurt"
-    elif 8 <= hour <= 14:
+    elif 8 <= hour <= 12:
         return "London"
-    elif 15 <= hour <= 21:
+    elif 13 <= hour <= 21:
         return "NewYork"
     else:
         return "OffHours"
@@ -103,7 +103,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if "volume" in df.columns:
         if HAS_PTA:
             df["mfi_14"] = pta.mfi(df["high"], df["low"], df["close"], df["volume"], length=14)
-        df["z_volume"] = (df["volume"] - df["volume"].rolling(32).mean()) / df["volume"].rolling(32).std()
+        df["z_volume"] = (df["volume"] - df["volume"].rolling(8).mean()) / df["volume"].rolling(8).std()
 
     # === VWAP and distance ===
     if HAS_PTA:
@@ -111,14 +111,13 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["vwap_distance"] = (df["close"] - df["vwap"]) / df["vwap"]
 
     # === Log returns ===
-    df["log_return_15m"] = np.log(df["close"] / df["close"].shift(1))
-    df["log_return_1h"] = np.log(df["close"] / df["close"].shift(4))
-    df["log_return_4h"] = np.log(df["close"] / df["close"].shift(16))
-    df["log_return_1d"] = np.log(df["close"] / df["close"].shift(96))
+    df["log_return_1h"] = np.log(df["close"] / df["close"].shift(1))
+    df["log_return_4h"] = np.log(df["close"] / df["close"].shift(4))
+    df["log_return_1d"] = np.log(df["close"] / df["close"].shift(24))
 
     # === Rolling volatility ===
-    df["roll_std_16"] = df["log_return_15m"].rolling(16).std()
-    df["roll_std_32"] = df["log_return_15m"].rolling(32).std()
+    df["roll_std_4h"] = df["log_return_1h"].rolling(4).std()
+    df["roll_std_8h"] = df["log_return_1h"].rolling(8).std()
 
     # === Funding Rate Context ===
     if "funding_rate" in df.columns:
@@ -151,11 +150,11 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df["session_return_mean"] = (
-        g["log_return_15m"].expanding().mean().reset_index(level=[0,1], drop=True)
+        g["log_return_1h"].expanding().mean().reset_index(level=[0,1], drop=True)
     )
 
     df["session_volatility"] = (
-        g["roll_std_16"].expanding().mean().reset_index(level=[0,1], drop=True)
+        g["roll_std_4h"].expanding().mean().reset_index(level=[0,1], drop=True)
     )
 
     df.drop(columns=["hour"], inplace=True, errors="ignore")
@@ -187,17 +186,17 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         logs = np.log(1.0 / np.arange(1, len(Lk) + 1))
         return np.polyfit(logs, np.log(Lk), 1)[0]
 
-    fd_window = 96  # 1 day at 15m
+    fd_window = 24  # 1 day at 1h
     close_vals = df["close"].values
     fd_vals = [np.nan] * len(df)
 
     for i in range(fd_window, len(df)):
         fd_vals[i] = higuchi_fd(close_vals[i - fd_window:i])
 
-    df["fd_96"] = fd_vals
+    df["fd_24"] = fd_vals
 
     # === FD slope ======================================================
-    df["fd_slope"] = df["fd_96"].diff()
+    df["fd_slope"] = df["fd_24"].diff()
 
     print("[INFO] FD computed.")
 
@@ -205,9 +204,9 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # ============================================================
     # === EMA smoothing ==========================================
     # ============================================================
-    df["fd_ema_12"] = df["fd_96"].ewm(span=12, adjust=False, min_periods=12).mean()
-    df["fd_ema_24"] = df["fd_96"].ewm(span=24, adjust=False, min_periods=24).mean()
-    df["fd_trend_strength"] = df["fd_96"] - df["fd_ema_24"]
+    df["fd_ema_12"] = df["fd_24"].ewm(span=12, adjust=False, min_periods=12).mean()
+    df["fd_ema_24"] = df["fd_24"].ewm(span=24, adjust=False, min_periods=24).mean()
+    df["fd_trend_strength"] = df["fd_24"] - df["fd_ema_24"]
 
 
     # ============================================================
@@ -218,7 +217,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df["fd_threshold_causal"] = (
         df["fd_ema_24"]
-        .expanding(min_periods=96)
+        .expanding(min_periods=24)
         .quantile(0.70)
     )
 
@@ -237,8 +236,8 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     atr = df["atr_200"].replace(0, np.nan).clip(lower=1e-8)
 
-    df["fd_volatility"] = df["fd_96"] * atr
-    df["fd_vol_ratio"] = df["fd_96"] / atr
+    df["fd_volatility"] = df["fd_24"] * atr
+    df["fd_vol_ratio"] = df["fd_24"] / atr
     df["fd_vol_slope"] = df["fd_slope"] * atr
 
     # normalize slope by ATR (strong feature)
@@ -251,7 +250,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df["fd_entropy"] = (
         df["fd_slope"]
-        .rolling(96, min_periods=48)
+        .rolling(24, min_periods=12)
         .std()
     )
 
@@ -260,7 +259,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # === Volatility-adjusted FD (Fractal Market Hypothesis) =====
     # ============================================================
 
-    df["fd_vol_adjusted"] = df["fd_96"] / (1 + df["atr_vol_regime"])
+    df["fd_vol_adjusted"] = df["fd_24"] / (1 + df["atr_vol_regime"])
 
 
     # ============================================================
@@ -270,7 +269,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     print("[INFO] Computing robust FD normalization...")
 
     fd_cols = [
-        "fd_96",
+        "fd_24",
         "fd_ema_12",
         "fd_ema_24",
         "fd_trend_strength",
@@ -283,7 +282,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         "fd_vol_adjusted",
     ]
 
-    win = 96 * 10  # 10 days
+    win = 24 * 10  # 10 days
     for col in fd_cols:
         if col in df.columns:
             median = df[col].rolling(win, min_periods=win//2).median()
@@ -303,7 +302,6 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     daily = df.resample("1D").agg({"high": "max", "low": "min"})
     daily.columns = ["daily_high", "daily_low"]
 
-    # робимо ці рівні "рівнями вчорашнього дня"
     daily[["daily_high", "daily_low"]] = daily[["daily_high", "daily_low"]].shift(1)
 
     df["date"] = df.index.normalize()
@@ -313,11 +311,10 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["daily_low"] = df["daily_low"].ffill()
 
     # ----- Previous Weekly High/Low -----
-    # групуємо по тижнях (PeriodIndex), щоб було стабільно
+
     weekly = df.groupby(df.index.to_period("W")).agg({"high": "max", "low": "min"})
     weekly.columns = ["weekly_high", "weekly_low"]
 
-    # знову ж робимо "минулого тижня"
     weekly = weekly.shift(1)
 
     df["week_period"] = df.index.to_period("W")

@@ -152,8 +152,8 @@ def detect_fvg(df):
 def compute_pda_zones(df):
     print("[INFO] Computing PDA zones...")
 
-    df["rolling_high"] = df["high"].rolling(100, min_periods=1).max()
-    df["rolling_low"] = df["low"].rolling(100, min_periods=1).min()
+    df["rolling_high"] = df["high"].rolling(25, min_periods=1).max()
+    df["rolling_low"] = df["low"].rolling(25, min_periods=1).min()
     df["equilibrium"] = (df["rolling_high"] + df["rolling_low"]) / 2
     df["pda"] = np.where(df["close"] >= df["equilibrium"], "Premium", "Discount")
 
@@ -168,8 +168,8 @@ def detect_breakouts(df):
 
     vol_ma = df["volume"].rolling(10).mean()
 
-    rolling_high = df["high"].rolling(100, min_periods=1).max() 
-    rolling_low  = df["low"].rolling(100, min_periods=1).min() 
+    rolling_high = df["high"].rolling(25).max()     
+    rolling_low  = df["low"].rolling(25).min()
 
     df["breakout_bullish"] = (df["close"] > rolling_high.shift(1)) & (df["volume"] > vol_ma)
     df["breakout_bearish"] = (df["close"] < rolling_low.shift(1)) & (df["volume"] > vol_ma)

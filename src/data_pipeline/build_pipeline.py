@@ -8,6 +8,7 @@ Executes all data preparation stages in sequence:
 2. preprocessing.py     – basic QA, cleanup
 3. technical.py         – add technical indicators
 4. patterns.py          – pattern-based feature extraction
+5. macro_behavior.py    – macro behavior features
 5. normalize.py         – ATR-based normalization
 6. data_postprocess.py  – categorical + cyclical encoding (final dataset)
 """

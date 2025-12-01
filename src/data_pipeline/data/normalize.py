@@ -75,7 +75,7 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         df["atr_vol_regime"] = df["atr_vol_regime"] / atr
 
     if "atr_vol_regime" in df.columns:
-        win = 96 * 10
+        win = 24 * 10
         eps = 1e-8
 
         roll_mean = df["atr_vol_regime"].rolling(win, min_periods=win//2).mean()
@@ -111,7 +111,7 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         df["bb_percB"] = (df["close"] - df["bb_bbl"]) / \
             (df["bb_bbh"] - df["bb_bbl"]).clip(lower=1e-12)
 
-        df.drop(columns=["bb_bbm", "bb_bbh", "bb_bbl"], inplace=True)
+        df.drop(columns=["bb_bbm", "bb_bbh", "bb_bbl", "atr_14"], inplace=True)
         print("[INFO] Replaced BB values with bb_z and %B.")
 
     # =====================================================
