@@ -1,3 +1,4 @@
+# data utils
 from sklearn.preprocessing import StandardScaler
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
@@ -6,12 +7,12 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 
+#data utils
 
-def split_scale(df, target_cols='y', test_size=0.15, val_size=0.15, scale=True):
-    """Split into train/val/test and selectively scale features with StandardScaler."""
+def split_scale(df, target_cols='y', test_size=0.09, val_size=0.09, scale=True, for_test=False, volatility='atr_14'):
+    """Split into train/val/test (or train+val/test for for_test) and selectively scale features."""
     df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
 
-    # --- Ensure target_cols is iterable ---
     if isinstance(target_cols, str):
         target_cols = [target_cols]
 
@@ -19,42 +20,50 @@ def split_scale(df, target_cols='y', test_size=0.15, val_size=0.15, scale=True):
     test_start = int(n * (1 - test_size))
     val_start = int(n * (1 - val_size - test_size))
 
-    # --- Define feature columns ---
     feature_cols = [c for c in df.columns if c not in target_cols]
 
-    # --- Exclude raw OHLC, ATR, and boolean/binary columns from scaling ---
-    exclude_cols = ['open', 'high', 'low', 'close', 'atr_14']
-
-    # Detect binary/boolean columns automatically
+    exclude_cols = [
+        'open', 'high', 'low', 'close', 'hour_sin', 'hour_cos',
+        'dayofweek_sin', 'dayofweek_cos', 'z_volume', 'bb_percent'
+    ] + [volatility]
+    print(exclude_cols)
     binary_cols = [c for c in feature_cols if df[c].nunique(dropna=True) <= 2]
-
-    # Form final list of scaled columns
-    scale_cols = [
-        c for c in feature_cols if c not in exclude_cols + binary_cols]
+    scale_cols = [c for c in feature_cols if c not in exclude_cols + binary_cols]
 
     print(f"[INFO] Using StandardScaler, scaling = {scale}")
-    print(
-        f"[INFO] Total features: {len(feature_cols)} | Scaled: {len(scale_cols)} | Excluded: {exclude_cols}")
+    print(f"[INFO] Total features: {len(feature_cols)} | Scaled: {len(scale_cols)} | Excluded: {len(exclude_cols)}")
 
     scaler = StandardScaler() if scale else None
 
-    if scale:
-        # Fit only on training part
-        scaler.fit(df[scale_cols].iloc[:test_start])
+    if for_test:
+        # Train = train+val; fit on train+val
+        if scale and len(scale_cols) > 0:
+            scaler.fit(df[scale_cols].iloc[:test_start])
+            df[scale_cols] = scaler.transform(df[scale_cols])
+            print(f"[OK] Standard scaling applied to {len(scale_cols)} columns (fit on train+val).")
+        else:
+            print("[INFO] Scaling skipped (using raw features).")
+
+        train_df = df.iloc[:test_start].reset_index(drop=True)   # train+val
+        test_df  = df.iloc[test_start:].reset_index(drop=True)
+        print(f"[OK] Split complete → Train (train+val): {len(train_df)}, Test: {len(test_df)}")
+        return train_df, test_df, scaler
+
+    # Regular 3-way split; fit on train only
+    if scale and len(scale_cols) > 0:
+        scaler.fit(df[scale_cols].iloc[:val_start])  # train only
         df[scale_cols] = scaler.transform(df[scale_cols])
-        print(f"[OK] Standard scaling applied to {len(scale_cols)} columns.")
+        print(f"[OK] Standard scaling applied to {len(scale_cols)} columns (fit on train only).")
     else:
         print("[INFO] Scaling skipped (using raw features).")
 
-    # --- Split dataset ---
     train_df = df.iloc[:val_start].reset_index(drop=True)
-    val_df = df.iloc[val_start:test_start].reset_index(drop=True)
-    test_df = df.iloc[test_start:].reset_index(drop=True)
+    val_df   = df.iloc[val_start:test_start].reset_index(drop=True)
+    test_df  = df.iloc[test_start:].reset_index(drop=True)
 
-    print(
-        f"[OK] Split complete → Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
-
+    print(f"[OK] Split complete → Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
     return train_df, val_df, test_df, scaler
+
 
 
 class CryptoDataset(Dataset):
@@ -75,7 +84,7 @@ class CryptoDataset(Dataset):
         return X, y
 
 
-def triple_barrier_label(df, close='close', high='high', low='low', volatility='atr_14', ku=1.5, kd=1.5, hold=16, labels=None, debug=False):
+def triple_barrier_label(df, close='close', high='high', low='low', volatility='atr_200', ku=6.0, kd=2.0, hold=336, labels=None, debug=False):
     """
     df: DataFrame with columns close/high/low/volatility (15m bars)
     ku, kd: upper/lower multipliers 
@@ -118,26 +127,3 @@ def triple_barrier_label(df, close='close', high='high', low='low', volatility='
         out['b_dn'] = b_dn
 
     return out.iloc[:n - hold]
-
-
-def min_max_label(df, close='close', high='high', low='low', horizon=16):
-    """
-    df: DataFrame with columns close/high/low (15m bars)
-    horizon: look-ahead horizon in bars
-    returns: Max and Min values within horizon    
-    """
-    closes, highs, lows = df[close].values, df[high].values, df[low].values
-
-    n = len(df)
-    y_high = np.zeros(n, dtype=float)
-    y_low = np.zeros(n, dtype=float)
-
-    for i in range(n - horizon):
-        y_high[i] = np.max(np.append(highs[i+1:i+1+horizon], closes[i]))
-        y_low[i] = np.min(np.append(lows[i+1:i+1+horizon], closes[i]))
-
-    out = df.copy()
-    out['y_high'] = np.log(y_high/closes)
-    out['y_low'] = -np.log(y_low/closes)
-
-    return out.iloc[:n - horizon]
