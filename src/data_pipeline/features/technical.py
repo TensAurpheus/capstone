@@ -38,19 +38,19 @@ except ImportError:
 def assign_session(hour):
     """
     Assigns trading session by UTC hour:
-      - Asia: 01–06
-      - Frankfurt: 07
-      - London: 08–14
-      - NewYork: 15–21
+      - Asia: 01:00–06:59
+      - Frankfurt: 07:00-07:59
+      - London: 08:00–12:59
+      - NewYork: 13:00–21:59
       - OffHours: others
     """
     if 1 <= hour <= 6:
         return "Asia"
     elif hour == 7:
         return "Frankfurt"
-    elif 8 <= hour <= 14:
+    elif 8 <= hour <= 12:
         return "London"
-    elif 15 <= hour <= 21:
+    elif 13 <= hour <= 21:
         return "NewYork"
     else:
         return "OffHours"
@@ -96,28 +96,29 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["bb_width"] = (df["bb_bbh"] - df["bb_bbl"]) / df["bb_bbm"]
 
     df["atr_14"] = pta.atr(df["high"], df["low"], df["close"], length=14)
+    df["atr_200"] = pta.atr(df["high"], df["low"], df["close"], length=200)
+    df["atr_vol_regime"] = df["atr_14"] / df["atr_200"].clip(lower=1e-8)
 
     # === Volume-based ===
     if "volume" in df.columns:
         if HAS_PTA:
             df["mfi_14"] = pta.mfi(df["high"], df["low"], df["close"], df["volume"], length=14)
-        df["z_volume"] = (df["volume"] - df["volume"].rolling(32).mean()) / df["volume"].rolling(32).std()
+        df["z_volume"] = (df["volume"] - df["volume"].rolling(8).mean()) / df["volume"].rolling(8).std()
 
     # === VWAP and distance ===
-    if HAS_PTA and all(c in df.columns for c in ["high", "low", "close", "volume"]):
+    if HAS_PTA:
         df["vwap"] = pta.vwap(df["high"], df["low"], df["close"], df["volume"])
         df["vwap_distance"] = (df["close"] - df["vwap"]) / df["vwap"]
 
     # === Log returns ===
-    df["log_return_15m"] = np.log(df["close"] / df["close"].shift(1))
-    df["log_return_1h"] = np.log(df["close"] / df["close"].shift(4))
-    df["log_return_4h"] = np.log(df["close"] / df["close"].shift(16))
-    df["log_return_1d"] = np.log(df["close"] / df["close"].shift(96))
+    df["log_return_1h"] = np.log(df["close"] / df["close"].shift(1))
+    df["log_return_4h"] = np.log(df["close"] / df["close"].shift(4))
+    df["log_return_1d"] = np.log(df["close"] / df["close"].shift(24))
 
     # === Rolling volatility ===
-    df["roll_std_16"] = df["log_return_15m"].rolling(16).std()
-    df["roll_std_32"] = df["log_return_15m"].rolling(32).std()
-    
+    df["roll_std_4h"] = df["log_return_1h"].rolling(4).std()
+    df["roll_std_8h"] = df["log_return_1h"].rolling(8).std()
+
     # === Funding Rate Context ===
     if "funding_rate" in df.columns:
         df["funding_bias"] = np.sign(df["funding_rate"]).astype(int)
@@ -129,47 +130,199 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["session"] = df["hour"].map(assign_session)
     df["date"] = df.index.date
 
-    # === VWAP per session (stable transform version) ===
-    if all(c in df.columns for c in ["high", "low", "close", "volume"]):
-        print("[INFO] Computing session-level VWAP...")
-        try:
-            def compute_session_vwap(group):
-                price = (group["high"] + group["low"] + group["close"]) / 3
-                cum_pv = (price * group["volume"]).cumsum()
-                cum_vol = group["volume"].cumsum().replace(0, np.nan)
-                return cum_pv / cum_vol
+    # === CAUSAL Session VWAP ===
+    print("[INFO] Computing causal session VWAP...")
+    price = (df["high"] + df["low"] + df["close"]) / 3
 
-            vwap_session = df.groupby(["date", "session"], group_keys=False).apply(compute_session_vwap)
-            vwap_session.index = df.index 
-            df["vwap_session"] = vwap_session
-
-        except Exception as e:
-            print(f"[WARN] Session VWAP skipped due to error: {e}")
-    else:
-        print("[WARN] Session VWAP skipped — missing OHLCV columns.")
-
-    # === Session-level statistics ===
-    session_stats = (
+    df["vwap_session"] = (
         df.groupby(["date", "session"])
-        .agg({
-            "volume": "mean",
-            "log_return_15m": "mean",
-            "roll_std_16": "mean"
-        })
-        .rename(columns={
-            "volume": "session_vol_mean",
-            "log_return_15m": "session_return_mean",
-            "roll_std_16": "session_volatility"
-        })
-        .reset_index()
+          .apply(lambda g: (price.loc[g.index] * g["volume"]).cumsum() /
+                           g["volume"].cumsum().replace(0, np.nan))
+          .droplevel([0, 1])
     )
-    df = df.reset_index().merge(session_stats, on=["date", "session"], how="left")
+
+    # === CAUSAL Session Statistics (expanding) ===
+    print("[INFO] Computing causal session statistics...")
+    g = df.groupby(["date", "session"])
+
+    df["session_vol_mean"] = (
+        g["volume"].expanding().mean().reset_index(level=[0,1], drop=True)
+    )
+
+    df["session_return_mean"] = (
+        g["log_return_1h"].expanding().mean().reset_index(level=[0,1], drop=True)
+    )
+
+    df["session_volatility"] = (
+        g["roll_std_4h"].expanding().mean().reset_index(level=[0,1], drop=True)
+    )
 
     df.drop(columns=["hour"], inplace=True, errors="ignore")
 
-    print("[OK] Technical indicators + sessions + VWAP added.")
-    return df
+    print("[OK] Technical indicators + causal session features added.")
 
+    # ============================================================
+    # === Higuchi Fractal Dimension (FD) — CAUSAL, NO LEAK =======
+    # ============================================================
+
+    print("[INFO] Computing Fractal Dimension (Higuchi FD)...")
+
+    def higuchi_fd(series, kmax=5):
+        y = np.array(series, dtype=float)
+        N = len(y)
+        Lk = []
+        for k in range(1, kmax + 1):
+            Lm = []
+            for m in range(k):
+                idx = np.arange(m, N, k)
+                if len(idx) < 2:
+                    continue
+                Lm_val = np.sum(np.abs(np.diff(y[idx]))) * (N - 1) / (len(idx) * k)
+                Lm.append(Lm_val)
+            if Lm:
+                Lk.append(np.mean(Lm))
+        if len(Lk) < 2:
+            return np.nan
+        logs = np.log(1.0 / np.arange(1, len(Lk) + 1))
+        return np.polyfit(logs, np.log(Lk), 1)[0]
+
+    fd_window = 24  # 1 day at 1h
+    close_vals = df["close"].values
+    fd_vals = [np.nan] * len(df)
+
+    for i in range(fd_window, len(df)):
+        fd_vals[i] = higuchi_fd(close_vals[i - fd_window:i])
+
+    df["fd_24"] = fd_vals
+
+    # === FD slope ======================================================
+    df["fd_slope"] = df["fd_24"].diff()
+
+    print("[INFO] FD computed.")
+
+
+    # ============================================================
+    # === EMA smoothing ==========================================
+    # ============================================================
+    df["fd_ema_12"] = df["fd_24"].ewm(span=12, adjust=False, min_periods=12).mean()
+    df["fd_ema_24"] = df["fd_24"].ewm(span=24, adjust=False, min_periods=24).mean()
+    df["fd_trend_strength"] = df["fd_24"] - df["fd_ema_24"]
+
+
+    # ============================================================
+    # === Adaptive FD Regime (CAUSAL QUANTILE) ==================
+    # ============================================================
+
+    print("[INFO] Computing causal FD regime with expanding quantile...")
+
+    df["fd_threshold_causal"] = (
+        df["fd_ema_24"]
+        .expanding(min_periods=24)
+        .quantile(0.70)
+    )
+
+    df["fd_regime"] = (df["fd_ema_24"] >= df["fd_threshold_causal"]).astype(int)
+
+    # regime transitions (very strong feature)
+    df["fd_regime_switch"] = df["fd_regime"].diff().fillna(0)
+
+    last_thr = df["fd_threshold_causal"].iloc[-1]
+    print(f"[INFO] Latest causal FD regime threshold = {last_thr:.4f}")
+
+
+    # ============================================================
+    # === FD × Volatility interaction (using ATR-200) ============
+    # ============================================================
+
+    atr = df["atr_200"].replace(0, np.nan).clip(lower=1e-8)
+
+    df["fd_volatility"] = df["fd_24"] * atr
+    df["fd_vol_ratio"] = df["fd_24"] / atr
+    df["fd_vol_slope"] = df["fd_slope"] * atr
+
+    # normalize slope by ATR (strong feature)
+    df["fd_slope_atr_norm"] = df["fd_slope"] / atr
+
+
+    # ============================================================
+    # === FD Entropy (local FD uncertainty) =======================
+    # ============================================================
+
+    df["fd_entropy"] = (
+        df["fd_slope"]
+        .rolling(24, min_periods=12)
+        .std()
+    )
+
+
+    # ============================================================
+    # === Volatility-adjusted FD (Fractal Market Hypothesis) =====
+    # ============================================================
+
+    df["fd_vol_adjusted"] = df["fd_24"] / (1 + df["atr_vol_regime"])
+
+
+    # ============================================================
+    # === Robust FD Normalization (MAD Z-score) ==================
+    # ============================================================
+
+    print("[INFO] Computing robust FD normalization...")
+
+    fd_cols = [
+        "fd_24",
+        "fd_ema_12",
+        "fd_ema_24",
+        "fd_trend_strength",
+        "fd_slope",
+        "fd_slope_atr_norm",
+        "fd_volatility",
+        "fd_vol_ratio",
+        "fd_vol_slope",
+        "fd_entropy",
+        "fd_vol_adjusted",
+    ]
+
+    win = 24 * 10  # 10 days
+    for col in fd_cols:
+        if col in df.columns:
+            median = df[col].rolling(win, min_periods=win//2).median()
+            mad = (np.abs(df[col] - median)).rolling(win, min_periods=win//2).median()
+            mad = mad.replace(0, np.nan)
+
+            df[col + "_robust_z"] = (
+                (df[col] - median) / (1.4826 * mad)
+            ).clip(-5, 5)
+
+    print("[OK] FD block enhanced and normalized.")
+    
+    # === Daily & Weekly High/Low (CAUSAL: previous day/week) ============
+    print("[INFO] Computing Daily and Weekly High/Low (previous)...")
+
+    # ----- Previous Daily High/Low -----
+    daily = df.resample("1D").agg({"high": "max", "low": "min"})
+    daily.columns = ["daily_high", "daily_low"]
+
+    daily[["daily_high", "daily_low"]] = daily[["daily_high", "daily_low"]].shift(1)
+
+    df["date"] = df.index.normalize()
+    df = df.merge(daily, left_on="date", right_index=True, how="left")
+
+    df["daily_high"] = df["daily_high"].ffill()
+    df["daily_low"] = df["daily_low"].ffill()
+
+    # ----- Previous Weekly High/Low -----
+
+    weekly = df.groupby(df.index.to_period("W")).agg({"high": "max", "low": "min"})
+    weekly.columns = ["weekly_high", "weekly_low"]
+
+    weekly = weekly.shift(1)
+
+    df["week_period"] = df.index.to_period("W")
+    df = df.merge(weekly, left_on="week_period", right_index=True, how="left")
+
+    df["weekly_high"] = df["weekly_high"].ffill()
+    df["weekly_low"] = df["weekly_low"].ffill()
+    return df
 
 # === CLI entrypoint ===
 def main():
@@ -185,6 +338,11 @@ def main():
     df = pd.read_parquet(input_path)
 
     df = add_technical_indicators(df)
+
+    # Ensure timestamp column exists (parquet does not preserve index)
+    if isinstance(df.index, pd.DatetimeIndex):
+        df = df.reset_index().rename(columns={"index": "timestamp"})
+
 
     # === Save ===
     output_path.parent.mkdir(parents=True, exist_ok=True)

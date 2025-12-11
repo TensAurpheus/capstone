@@ -78,6 +78,7 @@ def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
 
     df = pd.DataFrame(all_rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df = df[df["timestamp"] <= end_utc]
     print(f"[OK] OHLCV done: {len(df):,} rows")
     return df
 
