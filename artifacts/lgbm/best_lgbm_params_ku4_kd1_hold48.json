@@ -1,0 +1,14 @@
+{
+  "ku": 4,
+  "kd": 1,
+  "hold": 48,
+  "best_tp_f1_val": 0.534130951405392,
+  "best_params": {
+    "n_estimators": 300,
+    "num_leaves": 63,
+    "max_depth": 10,
+    "learning_rate": 0.03,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7
+  }
+}

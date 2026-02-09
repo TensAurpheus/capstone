@@ -1,0 +1,13 @@
+{
+  "ku": 2,
+  "kd": 1,
+  "hold": 48,
+  "best_tp_f1_val": 0.6463432507694563,
+  "best_params": {
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "n_estimators": 300,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8
+  }
+}
