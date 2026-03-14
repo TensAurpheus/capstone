@@ -24,4 +24,3 @@ __all__ = [
     "add_technical_indicators",
     "generate_patterns",
 ]
-

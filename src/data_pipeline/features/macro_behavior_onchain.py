@@ -7,23 +7,24 @@ import investpy
 from tzlocal import get_localzone
 from dateutil import tz
 
-
 # ----------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------
+
 
 def extract_asset_name(symbol: str):
     """
     Перетворює 'BTC/USDT' → 'btc', 'eth-usdt' → 'eth', 'SOLUSD' → 'sol'
     """
-    symbol = symbol.upper().replace('-', '/')
-    base = symbol.split('/')[0]
+    symbol = symbol.upper().replace("-", "/")
+    base = symbol.split("/")[0]
     return base.lower()
 
 
 # ----------------------------------------------------------
 # Data Loaders
 # ----------------------------------------------------------
+
 
 def load_investing_macro_news(start_date, end_date):
     """
@@ -43,17 +44,14 @@ def load_investing_macro_news(start_date, end_date):
     df["time"] = df["time"].fillna("00:00")
 
     naive_ts = pd.to_datetime(
-        df["date"].dt.strftime("%Y-%m-%d") + " " + df["time"],
-        errors="coerce"
+        df["date"].dt.strftime("%Y-%m-%d") + " " + df["time"], errors="coerce"
     )
 
     # 3) local time -> UTC
     local_tz = tz.tzlocal()
-    df["release_ts"] = (
-        naive_ts
-        .dt.tz_localize(local_tz, nonexistent="NaT", ambiguous="NaT")
-        .dt.tz_convert("UTC")
-    )
+    df["release_ts"] = naive_ts.dt.tz_localize(
+        local_tz, nonexistent="NaT", ambiguous="NaT"
+    ).dt.tz_convert("UTC")
 
     df = df.dropna(subset=["release_ts"]).copy()
 
@@ -90,22 +88,17 @@ def load_investing_macro_news(start_date, end_date):
     # 8) Select columns
     macro = df[["release_ts", "macro_event_sentiment", "macro_event_flag"]].copy()
 
-
     macro = macro.dropna(subset=["release_ts"]).sort_values("release_ts")
     macro = macro.set_index("release_ts")
-    macro = macro[~macro.index.isna()]          
+    macro = macro[~macro.index.isna()]
     macro = macro.sort_index()
 
     macro["macro_event_intensity"] = (
-        macro["macro_event_sentiment"]
-        .rolling("5D", min_periods=1)
-        .mean()
+        macro["macro_event_sentiment"].rolling("5D", min_periods=1).mean()
     )
 
     macro["macro_event_intensity_smooth"] = (
-        macro["macro_event_intensity"]
-        .ewm(span=5, adjust=False)
-        .mean()
+        macro["macro_event_intensity"].ewm(span=5, adjust=False).mean()
     )
 
     # 10) Reset index
@@ -154,20 +147,19 @@ def load_onchain_coinmetrics(start_date, end_date, symbol):
     if r.status_code != 200:
         print(f"[WARN] No on-chain data for {asset.upper()} — fallback zeros.")
         dates = pd.date_range(start_date, end_date)
-        return pd.DataFrame({
-            "publish_ts": dates,
-            "onchain_index": 0.0
-        })
+        return pd.DataFrame({"publish_ts": dates, "onchain_index": 0.0})
 
     df = pd.read_csv(url)
 
-    df = df.rename(columns={
-        "time": "date",
-        "AdrActCnt": "active_addresses",
-        "TxCnt": "tx_count",
-        "volume_reported_spot_usd_1d": "volume_usd",
-        "CapMrktCurUSD": "market_cap"
-    })
+    df = df.rename(
+        columns={
+            "time": "date",
+            "AdrActCnt": "active_addresses",
+            "TxCnt": "tx_count",
+            "volume_reported_spot_usd_1d": "volume_usd",
+            "CapMrktCurUSD": "market_cap",
+        }
+    )
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df[(df["date"] >= start_date) & (df["date"] <= end_date)]
@@ -196,6 +188,7 @@ def load_onchain_coinmetrics(start_date, end_date, symbol):
 # Main Merge Logic
 # ----------------------------------------------------------
 
+
 def main(input_path, output_path, start_date, end_date, symbol):
 
     # -----------------------------
@@ -214,17 +207,15 @@ def main(input_path, output_path, start_date, end_date, symbol):
     base["date"] = base["timestamp"].dt.date
     base = base.sort_values("timestamp")
 
-
     # -----------------------------
     # 2. Load external datasets
     # -----------------------------
     start = pd.to_datetime(start_date)
     end = pd.to_datetime(end_date)
 
-    macro = load_investing_macro_news(start, end)   # has release_ts
-    fg = load_fear_greed(start, end)                # has publish_ts
+    macro = load_investing_macro_news(start, end)  # has release_ts
+    fg = load_fear_greed(start, end)  # has publish_ts
     onchain = load_onchain_coinmetrics(start, end, symbol)  # has publish_ts
-
 
     # -----------------------------
     # 3. Normalize timestamps of external datasets
@@ -238,33 +229,23 @@ def main(input_path, output_path, start_date, end_date, symbol):
     # On-chain: CoinMetrics → also UTC
     onchain["publish_ts"] = pd.to_datetime(onchain["publish_ts"], utc=True)
 
-
     # Sort for merge_asof
     macro = macro.sort_values("release_ts")
     fg = fg.sort_values("publish_ts")
     onchain = onchain.sort_values("publish_ts")
 
-
     # -----------------------------
     # 4. Merge macro by event release time
     # -----------------------------
     merged = pd.merge_asof(
-        base,
-        macro,
-        left_on="timestamp",
-        right_on="release_ts",
-        direction="backward"
+        base, macro, left_on="timestamp", right_on="release_ts", direction="backward"
     )
 
     # -----------------------------
     # 5. Merge Fear & Greed
     # -----------------------------
     merged = pd.merge_asof(
-        merged,
-        fg,
-        left_on="timestamp",
-        right_on="publish_ts",
-        direction="backward"
+        merged, fg, left_on="timestamp", right_on="publish_ts", direction="backward"
     )
 
     # -----------------------------
@@ -275,9 +256,8 @@ def main(input_path, output_path, start_date, end_date, symbol):
         onchain,
         left_on="timestamp",
         right_on="publish_ts",
-        direction="backward"
+        direction="backward",
     )
-
 
     # -----------------------------
     # 7. Final cleanup (STRICT no-leak)
@@ -291,7 +271,7 @@ def main(input_path, output_path, start_date, end_date, symbol):
         "macro_event_sentiment",
         "macro_event_intensity",
         "macro_event_intensity_smooth",
-        "macro_event_flag"
+        "macro_event_flag",
     ]:
         if col in merged.columns:
             merged[col] = merged[col].fillna(0)
@@ -299,13 +279,10 @@ def main(input_path, output_path, start_date, end_date, symbol):
     # On-chain missing: forward fill only
     if "onchain_activity_index" in merged.columns:
         merged["onchain_activity_index"] = (
-            merged["onchain_activity_index"]
-            .replace([np.inf, -np.inf], np.nan)
-            .ffill()
+            merged["onchain_activity_index"].replace([np.inf, -np.inf], np.nan).ffill()
         )
 
     merged = merged.sort_values("timestamp")
-
 
     # -----------------------------
     # 8. Save

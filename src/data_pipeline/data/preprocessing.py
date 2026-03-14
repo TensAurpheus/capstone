@@ -72,9 +72,15 @@ def preprocess(input_path: str, output_path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Clean and preprocess raw OHLCV + funding data")
-    parser.add_argument("--input", type=str, required=True, help="Path to input parquet file")
-    parser.add_argument("--output", type=str, required=True, help="Path to save cleaned parquet file")
+    parser = argparse.ArgumentParser(
+        description="Clean and preprocess raw OHLCV + funding data"
+    )
+    parser.add_argument(
+        "--input", type=str, required=True, help="Path to input parquet file"
+    )
+    parser.add_argument(
+        "--output", type=str, required=True, help="Path to save cleaned parquet file"
+    )
     args = parser.parse_args()
 
     preprocess(args.input, args.output)

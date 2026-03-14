@@ -17,13 +17,14 @@ from catboost import CatBoostClassifier
 from xgboost import XGBClassifier
 from collections import defaultdict
 
+
 def find_best_threshold_dl(
     model,
     X_val,
     y_val,
     KU,
     KD,
-    alpha=0.2,               # weight for tp_precision у combined_score
+    alpha=0.2,  # weight for tp_precision у combined_score
     thresholds=np.linspace(0.01, 0.99, 199),
 ):
     """
@@ -83,7 +84,6 @@ def find_best_threshold_dl(
     return best_thr, best_metrics, best_combined
 
 
-
 def tune_lightgbm_for_ku_kd(
     KU: float,
     KD: float,
@@ -96,23 +96,25 @@ def tune_lightgbm_for_ku_kd(
     keep_ratios=[1.0],
 ):
 
-    print(f"\n============== LightGBM (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n")
+    print(
+        f"\n============== LightGBM (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n"
+    )
 
     y_train = np.asarray(y_train, dtype=int).ravel()
-    y_val   = np.asarray(y_val,   dtype=int).ravel()
+    y_val = np.asarray(y_val, dtype=int).ravel()
 
     # ---------------------------------------------------------
     # OPTIMIZED COMPACT GRID
     # ---------------------------------------------------------
-    leaves_list      = [511, 1023]
-    depth_list       = [20]
-    n_list           = [3000]
-    lr_list          = [0.005]
-    subsample_list   = [0.9]
-    colsample_list   = [0.6, 0.8]
-    reg_alpha_list   = [0.0]
-    reg_lambda_list  = [10.0, 20.0]
-    min_child_list   = [1, 2]
+    leaves_list = [511, 1023]
+    depth_list = [20]
+    n_list = [3000]
+    lr_list = [0.005]
+    subsample_list = [0.9]
+    colsample_list = [0.6, 0.8]
+    reg_alpha_list = [0.0]
+    reg_lambda_list = [10.0, 20.0]
+    min_child_list = [1, 2]
 
     total = (
         len(keep_ratios)
@@ -187,7 +189,12 @@ def tune_lightgbm_for_ku_kd(
                                                 X_train_kr,
                                                 y_train_kr,
                                                 eval_set=[(X_val, y_val)],
-                                                callbacks=[early_stopping(stopping_rounds=40, verbose=False)],
+                                                callbacks=[
+                                                    early_stopping(
+                                                        stopping_rounds=40,
+                                                        verbose=False,
+                                                    )
+                                                ],
                                             )
 
                                             proba = model.predict_proba(X_val)[:, 1]
@@ -228,7 +235,10 @@ def tune_lightgbm_for_ku_kd(
                                             elif macro_f1 == best_macro_f1:
                                                 if tp_precision > best_tp_precision:
                                                     better = True
-                                                elif tp_precision == best_tp_precision and BSS > best_BSS:
+                                                elif (
+                                                    tp_precision == best_tp_precision
+                                                    and BSS > best_BSS
+                                                ):
                                                     better = True
 
                                             if better:
@@ -249,7 +259,9 @@ def tune_lightgbm_for_ku_kd(
     best_params["combined_score"] = best_combined
 
     print(f"\n RF Best threshold = {best_thr:.3f}")
-    print(f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}")
+    print(
+        f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}"
+    )
 
     # Save artifacts
     SAVE_DIR = Path(artifacts_dir) / "lgbm"
@@ -261,7 +273,9 @@ def tune_lightgbm_for_ku_kd(
     with open(SAVE_DIR / f"best_lgbm_params_{tag}.json", "w") as f:
         json.dump(best_params, f, indent=2)
 
-    pd.DataFrame(all_results).to_excel(SAVE_DIR / f"all_lgbm_results_{tag}.xlsx", index=False)
+    pd.DataFrame(all_results).to_excel(
+        SAVE_DIR / f"all_lgbm_results_{tag}.xlsx", index=False
+    )
     with open(SAVE_DIR / f"all_lgbm_results_{tag}.json", "w") as f:
         json.dump(all_results, f, indent=2)
 
@@ -281,10 +295,12 @@ def tune_random_forest_for_ku_kd(
     HOLD: int = 336,
     artifacts_dir: str = "artifacts",
 ):
-    print(f"\n============== RandomForest (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n")
+    print(
+        f"\n============== RandomForest (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n"
+    )
 
     y_train = np.asarray(y_train, dtype=int).ravel()
-    y_val   = np.asarray(y_val,   dtype=int).ravel()
+    y_val = np.asarray(y_val, dtype=int).ravel()
 
     # ---------------------------------------------------------
     # class weights
@@ -298,9 +314,9 @@ def tune_random_forest_for_ku_kd(
     # GRID SEARCH
     # ---------------------------------------------------------
 
-    n_list     = [450]
-    depth_list = [ 15, 18]
-    leaf_list  = [4, 6]
+    n_list = [450]
+    depth_list = [15, 18]
+    leaf_list = [4, 6]
 
     best_macro_f1 = -999
     best_tp_precision = -999
@@ -317,7 +333,9 @@ def tune_random_forest_for_ku_kd(
             for leaf in leaf_list:
 
                 model_n += 1
-                print(f"[{model_n}/{total}] RF n_est={n_est}, depth={depth}, leaf={leaf}")
+                print(
+                    f"[{model_n}/{total}] RF n_est={n_est}, depth={depth}, leaf={leaf}"
+                )
 
                 model = RandomForestClassifier(
                     n_estimators=n_est,
@@ -382,7 +400,9 @@ def tune_random_forest_for_ku_kd(
     best_params["combined_score"] = best_combined
 
     print(f"\n RF Best threshold = {best_thr:.3f}")
-    print(f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}")
+    print(
+        f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}"
+    )
 
     # ---------------------------------------------------------
     # Save artifacts
@@ -397,7 +417,9 @@ def tune_random_forest_for_ku_kd(
     with open(SAVE_DIR / f"best_rf_params_{tag}.json", "w") as f:
         json.dump(best_params, f, indent=2)
 
-    pd.DataFrame(all_results).to_excel(SAVE_DIR / f"all_rf_results_{tag}.xlsx", index=False)
+    pd.DataFrame(all_results).to_excel(
+        SAVE_DIR / f"all_rf_results_{tag}.xlsx", index=False
+    )
     with open(SAVE_DIR / f"all_rf_results_{tag}.json", "w") as f:
         json.dump(all_results, f, indent=2)
 
@@ -405,7 +427,6 @@ def tune_random_forest_for_ku_kd(
     print(" PARAMS:", best_params)
 
     return (KU, KD, thr_metrics["macro_f1"], thr_metrics["tp_precision"], best_params)
-
 
 
 def tune_xgb_for_ku_kd(
@@ -419,13 +440,15 @@ def tune_xgb_for_ku_kd(
     artifacts_dir: str = "artifacts",
 ):
 
-    print(f"\n============== XGBoost (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n")
+    print(
+        f"\n============== XGBoost (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n"
+    )
 
     y_train = np.asarray(y_train, dtype=int).ravel()
-    y_val   = np.asarray(y_val,   dtype=int).ravel()
+    y_val = np.asarray(y_val, dtype=int).ravel()
 
     # -----------------------------------------
-    # Class weights 
+    # Class weights
     # -----------------------------------------
     w_vec = make_utility_class_weights(y_train, ku=KU, kd=KD, mode="balanced")
     classes = np.sort(np.unique(y_train))
@@ -438,9 +461,9 @@ def tune_xgb_for_ku_kd(
     # ---------------------------------------------------------
     # GRID SEARCH
     # ---------------------------------------------------------
-    depths          = [3, 4]
-    learning_rates  = [0.03, 0.05]
-    estimators      = [2000, 3000]
+    depths = [3, 4]
+    learning_rates = [0.03, 0.05]
+    estimators = [2000, 3000]
 
     total = len(depths) * len(learning_rates) * len(estimators)
     print(f"[INFO] Total XGB models: {total}")
@@ -458,7 +481,9 @@ def tune_xgb_for_ku_kd(
             for estim in estimators:
 
                 model_n += 1
-                print(f"[{model_n}/{total}] depth={depth}, lr={lr}, n_estimators={estim}")
+                print(
+                    f"[{model_n}/{total}] depth={depth}, lr={lr}, n_estimators={estim}"
+                )
 
                 model = XGBClassifier(
                     objective="binary:logistic",
@@ -543,7 +568,9 @@ def tune_xgb_for_ku_kd(
     best_params["BSS"] = thr_metrics["bss"]
 
     print(f"\n XGB Best threshold = {best_thr:.3f}")
-    print(f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}")
+    print(
+        f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}"
+    )
 
     # ---------------------------------------------------------
     # SAVE ARTIFACTS
@@ -565,6 +592,7 @@ def tune_xgb_for_ku_kd(
 
     return (KU, KD, best_BSS, best_recall, best_params)
 
+
 def tune_catboost_for_ku_kd(
     KU: float,
     KD: float,
@@ -585,16 +613,18 @@ def tune_catboost_for_ku_kd(
         - For final best_trial selection:
               1) maximize BSS
               2) tie-breaker: maximize TP Recall
-        - Threshold tuning: 
+        - Threshold tuning:
               1) macro_f1
               2) tp_precision
               3) combined = macro_f1 + alpha * tp_precision
     """
 
-    print(f"\n============== CatBoost Optuna (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n")
+    print(
+        f"\n============== CatBoost Optuna (binary): KU={KU}, KD={KD}, HOLD={HOLD} ==============\n"
+    )
 
     y_train = np.asarray(y_train, dtype=int).ravel()
-    y_val   = np.asarray(y_val,   dtype=int).ravel()
+    y_val = np.asarray(y_val, dtype=int).ravel()
 
     # ---------------------------------------------------------
     # Class weights (utility-aware)
@@ -624,7 +654,9 @@ def tune_catboost_for_ku_kd(
             no_improve_counter += 1
 
         if no_improve_counter >= no_improve_stop:
-            print(f"\n⏹ Optuna early stopped after {no_improve_counter} non-improving trials\n")
+            print(
+                f"\n⏹ Optuna early stopped after {no_improve_counter} non-improving trials\n"
+            )
             study.stop()
 
     # ---------------------------------------------------------
@@ -647,10 +679,11 @@ def tune_catboost_for_ku_kd(
         model = CatBoostClassifier(**params)
 
         model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=(X_val, y_val),
             early_stopping_rounds=80,
-            verbose=False
+            verbose=False,
         )
 
         proba_val = model.predict_proba(X_val)[:, 1]
@@ -664,11 +697,11 @@ def tune_catboost_for_ku_kd(
             kd=KD,
         )
 
-        BSS          = m["bss"]
-        tp_recall    = m["tp_recall"]
+        BSS = m["bss"]
+        tp_recall = m["tp_recall"]
         tp_precision = m["tp_precision"]
-        tp_f1        = m["tp_f1"]
-        macro_f1     = m["macro_f1"]
+        tp_f1 = m["tp_f1"]
+        macro_f1 = m["macro_f1"]
 
         print(
             f"Trial={trial.number}: "
@@ -699,7 +732,7 @@ def tune_catboost_for_ku_kd(
         objective,
         n_trials=n_trials,
         callbacks=[early_stopping_callback],
-        show_progress_bar=True
+        show_progress_bar=True,
     )
 
     # ---------------------------------------------------------
@@ -718,11 +751,11 @@ def tune_catboost_for_ku_kd(
         if "BSS" not in t.user_attrs:
             continue
 
-        BSS          = t.user_attrs["BSS"]
-        tp_recall    = t.user_attrs["tp_recall"]
+        BSS = t.user_attrs["BSS"]
+        tp_recall = t.user_attrs["tp_recall"]
         tp_precision = t.user_attrs["tp_precision"]
-        tp_f1        = t.user_attrs["tp_f1"]
-        macro_f1     = t.user_attrs["macro_f1"]
+        tp_f1 = t.user_attrs["tp_f1"]
+        macro_f1 = t.user_attrs["macro_f1"]
 
         entry = {
             "trial_number": t.number,
@@ -761,15 +794,15 @@ def tune_catboost_for_ku_kd(
     print(f"macro_f1 = {best_trial.user_attrs['macro_f1']:.4f}")
 
     final_metrics = {
-        "BSS":         best_trial.user_attrs["BSS"],
-        "tp_recall":   best_trial.user_attrs["tp_recall"],
-        "tp_precision":best_trial.user_attrs["tp_precision"],
-        "tp_f1":       best_trial.user_attrs["tp_f1"],
-        "macro_f1":    best_trial.user_attrs["macro_f1"],
+        "BSS": best_trial.user_attrs["BSS"],
+        "tp_recall": best_trial.user_attrs["tp_recall"],
+        "tp_precision": best_trial.user_attrs["tp_precision"],
+        "tp_f1": best_trial.user_attrs["tp_f1"],
+        "macro_f1": best_trial.user_attrs["macro_f1"],
     }
 
     # ---------------------------------------------------------
-    # THRESHOLD TUNING 
+    # THRESHOLD TUNING
     # ---------------------------------------------------------
     best_thr, thr_metrics, best_combined = find_best_threshold_dl(
         best_model,
@@ -781,15 +814,17 @@ def tune_catboost_for_ku_kd(
     )
 
     print(f"\n CatBoost Best threshold = {best_thr:.3f}")
-    print(f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}")
+    print(
+        f"  macro_f1={thr_metrics['macro_f1']:.5f}, tp_prec={thr_metrics['tp_precision']:.5f}"
+    )
 
     final_metrics_thr = {
-        "BSS":         thr_metrics["bss"],
-        "tp_recall":   thr_metrics["tp_recall"],
-        "tp_precision":thr_metrics["tp_precision"],
-        "tp_f1":       thr_metrics["tp_f1"],
-        "macro_f1":    thr_metrics["macro_f1"],
-        "threshold":   best_thr,
+        "BSS": thr_metrics["bss"],
+        "tp_recall": thr_metrics["tp_recall"],
+        "tp_precision": thr_metrics["tp_precision"],
+        "tp_f1": thr_metrics["tp_f1"],
+        "macro_f1": thr_metrics["macro_f1"],
+        "threshold": best_thr,
         "combined_score": best_combined,
     }
 
@@ -814,7 +849,7 @@ def tune_catboost_for_ku_kd(
                 "ku": KU,
                 "kd": KD,
                 "hold": HOLD,
-                "best_metrics_raw": final_metrics,          # without threshold-tuning
+                "best_metrics_raw": final_metrics,  # without threshold-tuning
                 "best_metrics_dl_threshold": final_metrics_thr,  # after threshold
                 "best_params": best_params_extended,
             },
@@ -830,10 +865,10 @@ def tune_catboost_for_ku_kd(
     return KU, KD, final_metrics_thr, best_params_extended
 
 
-def data_pipe(df, ku, kd, hold, window_size, volatility_col='atr_200'):
+def data_pipe(df, ku, kd, hold, window_size, volatility_col="atr_200"):
 
     # ---------------------------------------------------------
-    # 1) Triple-barrier labeling: 3-class y in {0,1,2} 
+    # 1) Triple-barrier labeling: 3-class y in {0,1,2}
     # ---------------------------------------------------------
 
     df_labeled = triple_barrier_label(
@@ -844,11 +879,11 @@ def data_pipe(df, ku, kd, hold, window_size, volatility_col='atr_200'):
         debug=False,
         volatility=volatility_col,
     )
-    target = ['y']
+    target = ["y"]
     # print(df_labeled[target].value_counts(normalize=True))
 
     # ---------------------------------------------------------
-    # 2) Split + scale with 3-class labels (no binarization yet) 
+    # 2) Split + scale with 3-class labels (no binarization yet)
     # ---------------------------------------------------------
 
     df_train, df_val, df_test, scaler = split_scale(
@@ -859,37 +894,37 @@ def data_pipe(df, ku, kd, hold, window_size, volatility_col='atr_200'):
     )
 
     # ---------------------------------------------------------
-    # 3) One neat table of 3-class label distribution per split 
+    # 3) One neat table of 3-class label distribution per split
     # ---------------------------------------------------------
 
     def _vc(d):
-        vc = d['y'].value_counts().sort_index()
+        vc = d["y"].value_counts().sort_index()
         prop = vc / vc.sum()
         return vc, prop
 
     train_vc, train_prop = _vc(df_train)
-    val_vc,   val_prop   = _vc(df_val)
-    test_vc,  test_prop  = _vc(df_test)
+    val_vc, val_prop = _vc(df_val)
+    test_vc, test_prop = _vc(df_test)
 
     classes = sorted(set(train_vc.index) | set(val_vc.index) | set(test_vc.index))
 
     # reindex to ensure all classes appear in all splits
-    train_vc   = train_vc.reindex(classes, fill_value=0)
-    val_vc     = val_vc.reindex(classes, fill_value=0)
-    test_vc    = test_vc.reindex(classes, fill_value=0)
+    train_vc = train_vc.reindex(classes, fill_value=0)
+    val_vc = val_vc.reindex(classes, fill_value=0)
+    test_vc = test_vc.reindex(classes, fill_value=0)
     train_prop = train_prop.reindex(classes, fill_value=0.0)
-    val_prop   = val_prop.reindex(classes, fill_value=0.0)
-    test_prop  = test_prop.reindex(classes, fill_value=0.0)
+    val_prop = val_prop.reindex(classes, fill_value=0.0)
+    test_prop = test_prop.reindex(classes, fill_value=0.0)
 
     # build wide table with MultiIndex columns: (split, metric)
     table = pd.DataFrame(
         {
             ("train", "count"): train_vc,
-            ("train", "prop"):  train_prop,
-            ("val",   "count"): val_vc,
-            ("val",   "prop"):  val_prop,
-            ("test",  "count"): test_vc,
-            ("test",  "prop"):  test_prop,
+            ("train", "prop"): train_prop,
+            ("val", "count"): val_vc,
+            ("val", "prop"): val_prop,
+            ("test", "count"): test_vc,
+            ("test", "prop"): test_prop,
         },
         index=classes,
     )
@@ -909,7 +944,7 @@ def data_pipe(df, ku, kd, hold, window_size, volatility_col='atr_200'):
 
     for d in (df_train, df_val, df_test):
         # d['y_3c'] = d['y'].copy()
-        d['y'] = (d['y'] == 2).astype(int)
+        d["y"] = (d["y"] == 2).astype(int)
 
     return df_train, df_val, df_test, scaler
 
@@ -964,9 +999,15 @@ def make_utility_class_weights(
 
     return w.astype(np.float32)
 
+
 EXCLUDE_FEATURES = [
-    "open", "high", "low", "close", "atr_200",
+    "open",
+    "high",
+    "low",
+    "close",
+    "atr_200",
 ]
+
 
 def drop_exclude_features(df):
     return df.drop(columns=EXCLUDE_FEATURES, errors="ignore")
@@ -980,7 +1021,7 @@ def prepare_split_for_ku_kd(
     save_dir: str = "artifacts/splits",
     force: bool = False,
     volatility_col: str = "atr_200",
-    window_size: int = 336     # ← ДОДАЛИ
+    window_size: int = 336,  # ← ДОДАЛИ
 ):
     """
     Read or make train/val/test split for KU/KD/HOLD.
@@ -996,8 +1037,8 @@ def prepare_split_for_ku_kd(
 
     # parquet files
     train_p = save_dir / "train.parquet"
-    val_p   = save_dir / "val.parquet"
-    test_p  = save_dir / "test.parquet"
+    val_p = save_dir / "val.parquet"
+    test_p = save_dir / "test.parquet"
     scaler_p = save_dir / "scaler.pkl"
 
     # ----------------------------------------------------------------------
@@ -1012,8 +1053,8 @@ def prepare_split_for_ku_kd(
         print("   🟢", test_p)
 
         train_df = pd.read_parquet(train_p)
-        val_df   = pd.read_parquet(val_p)
-        test_df  = pd.read_parquet(test_p)
+        val_df = pd.read_parquet(val_p)
+        test_df = pd.read_parquet(test_p)
 
         try:
             scaler = joblib.load(scaler_p)
@@ -1039,7 +1080,7 @@ def prepare_split_for_ku_kd(
         )
 
         # ------------------------------------------------------------------
-        # 3) Split+Scale 
+        # 3) Split+Scale
         # ------------------------------------------------------------------
         train_df, val_df, test_df, scaler = split_scale(
             df_labeled,
@@ -1072,27 +1113,28 @@ def prepare_split_for_ku_kd(
 
     # remove first window_size rows
     train_df = train_df.iloc[window_size:].reset_index(drop=True)
-    #val_df   = val_df.iloc[window_size:].reset_index(drop=True)
-    #test_df  = test_df.iloc[window_size:].reset_index(drop=True)
+    # val_df   = val_df.iloc[window_size:].reset_index(drop=True)
+    # test_df  = test_df.iloc[window_size:].reset_index(drop=True)
 
     X_train, y_train = train_df.drop(columns=["y"]), train_df["y"]
-    X_val,   y_val   = val_df.drop(columns=["y"]),   val_df["y"]
-    X_test,  y_test  = test_df.drop(columns=["y"]),  test_df["y"]
-
+    X_val, y_val = val_df.drop(columns=["y"]), val_df["y"]
+    X_test, y_test = test_df.drop(columns=["y"]), test_df["y"]
 
     # ----------------------------------------------------------------------
     # 7) remove price-based features
     # ----------------------------------------------------------------------
     X_train = drop_exclude_features(X_train)
-    X_val   = drop_exclude_features(X_val)
-    X_test  = drop_exclude_features(X_test)
+    X_val = drop_exclude_features(X_val)
+    X_test = drop_exclude_features(X_test)
 
     # ----------------------------------------------------------------------
     # 8) print stats
     # ----------------------------------------------------------------------
     n_total = len(train_df) + len(val_df) + len(test_df)
     print(f"\n Split stats:")
-    print(f"   Train: {len(train_df):>6} | Val: {len(val_df):>6} | Test: {len(test_df):>6} | Total: {n_total}")
+    print(
+        f"   Train: {len(train_df):>6} | Val: {len(val_df):>6} | Test: {len(test_df):>6} | Total: {n_total}"
+    )
 
     print("\n Binary label distribution (TP rate):")
     print(" Train:", train_df["y"].value_counts(normalize=True).round(4).to_dict())
@@ -1101,33 +1143,26 @@ def prepare_split_for_ku_kd(
 
     return X_train, y_train, X_val, y_val, X_test, y_test
 
+
 def run_full_binary_pipeline(
-    df,
-    KU_list,
-    KD_list,
-    HOLD=336,
-    save_results="artifacts/results_binary"
+    df, KU_list, KD_list, HOLD=336, save_results="artifacts/results_binary"
 ):
     Path(save_results).mkdir(parents=True, exist_ok=True)
 
-    results = [] 
+    results = []
 
     for KU in KU_list:
         for KD in KD_list:
 
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print(f" START: KU={KU}, KD={KD}, HOLD={HOLD}")
-            print("="*80)
+            print("=" * 80)
 
             # ---------------------------------------------------------
             # 1) DATA SPLIT
             # ---------------------------------------------------------
             X_train, y_train, X_val, y_val, X_test, y_test = prepare_split_for_ku_kd(
-                df,
-                KU=KU,
-                KD=KD,
-                HOLD=HOLD,
-                force=False
+                df, KU=KU, KD=KD, HOLD=HOLD, force=False
             )
 
             # CatBoost safety
@@ -1163,29 +1198,33 @@ def run_full_binary_pipeline(
             for model_name, model_output in all_models.items():
 
                 best_params = model_output[-1]
-                thr = best_params.get("threshold", 0.5)   # default threshold
+                thr = best_params.get("threshold", 0.5)  # default threshold
 
                 # Load model
                 if model_name == "RF":
-                    model = joblib.load(f"artifacts/rf/best_rf_ku{KU}_kd{KD}_hold{HOLD}.pkl")
+                    model = joblib.load(
+                        f"artifacts/rf/best_rf_ku{KU}_kd{KD}_hold{HOLD}.pkl"
+                    )
                 elif model_name == "LGBM":
-                    model = joblib.load(f"artifacts/lgbm/best_lgbm_ku{KU}_kd{KD}_hold{HOLD}.pkl")
+                    model = joblib.load(
+                        f"artifacts/lgbm/best_lgbm_ku{KU}_kd{KD}_hold{HOLD}.pkl"
+                    )
                 elif model_name == "XGB":
-                    model = joblib.load(f"artifacts/xgb/best_xgb_ku{KU}_kd{KD}_hold{HOLD}.pkl")
+                    model = joblib.load(
+                        f"artifacts/xgb/best_xgb_ku{KU}_kd{KD}_hold{HOLD}.pkl"
+                    )
                 elif model_name == "CAT":
                     model = CatBoostClassifier()
-                    model.load_model(f"artifacts/cat/best_catboost_ku{KU}_kd{KD}_hold{HOLD}.cbm")
+                    model.load_model(
+                        f"artifacts/cat/best_catboost_ku{KU}_kd{KD}_hold{HOLD}.cbm"
+                    )
 
                 # VAL
                 proba_val = model.predict_proba(X_val)[:, 1]
                 y_pred_val = (proba_val >= thr).astype(int)
 
                 m_val = triple_barrier_metrics(
-                    y_true=y_val,
-                    y_pred=y_pred_val,
-                    p_all=proba_val,
-                    ku=KU,
-                    kd=KD
+                    y_true=y_val, y_pred=y_pred_val, p_all=proba_val, ku=KU, kd=KD
                 )
 
                 # TEST
@@ -1193,51 +1232,44 @@ def run_full_binary_pipeline(
                 y_pred_test = (proba_test >= thr).astype(int)
 
                 m_test = triple_barrier_metrics(
-                    y_true=y_test,
-                    y_pred=y_pred_test,
-                    p_all=proba_test,
-                    ku=KU,
-                    kd=KD
+                    y_true=y_test, y_pred=y_pred_test, p_all=proba_test, ku=KU, kd=KD
                 )
 
                 macro_gap = abs(m_test["macro_f1"] - m_val["macro_f1"])
                 precision_gap = abs(m_test["tp_precision"] - m_val["tp_precision"])
                 bss_gap = abs(m_test["bss"] - m_val["bss"])
 
-                test_records.append({
-                    "KU": KU,
-                    "KD": KD,
-                    "model": model_name,
-                    "threshold_used": thr,
-
-                    # VAL
-                    "macro_f1_val": m_val["macro_f1"],
-                    "tp_precision_val": m_val["tp_precision"],
-                    "tp_recall_val": m_val["tp_recall"],
-                    "tp_f1_val": m_val["tp_f1"],
-                    "BSS_val": m_val["bss"],
-
-                    # TEST
-                    "macro_f1_test": m_test["macro_f1"],
-                    "tp_precision_test": m_test["tp_precision"],
-                    "tp_recall_test": m_test["tp_recall"],
-                    "tp_f1_test": m_test["tp_f1"],
-                    "BSS_test": m_test["bss"],
-
-                    # Stability
-                    "macro_f1_gap": macro_gap,
-                    "precision_gap": precision_gap,
-                    "bss_gap": bss_gap,
-                })
-
+                test_records.append(
+                    {
+                        "KU": KU,
+                        "KD": KD,
+                        "model": model_name,
+                        "threshold_used": thr,
+                        # VAL
+                        "macro_f1_val": m_val["macro_f1"],
+                        "tp_precision_val": m_val["tp_precision"],
+                        "tp_recall_val": m_val["tp_recall"],
+                        "tp_f1_val": m_val["tp_f1"],
+                        "BSS_val": m_val["bss"],
+                        # TEST
+                        "macro_f1_test": m_test["macro_f1"],
+                        "tp_precision_test": m_test["tp_precision"],
+                        "tp_recall_test": m_test["tp_recall"],
+                        "tp_f1_test": m_test["tp_f1"],
+                        "BSS_test": m_test["bss"],
+                        # Stability
+                        "macro_f1_gap": macro_gap,
+                        "precision_gap": precision_gap,
+                        "bss_gap": bss_gap,
+                    }
+                )
 
             # ---------------------------------------------------------
             # 4) SAVE FULL TABLE
             # ---------------------------------------------------------
             df_test_full = pd.DataFrame(test_records)
             df_test_full.to_excel(
-                f"{save_results}/all_models_KU{KU}_KD{KD}.xlsx",
-                index=False
+                f"{save_results}/all_models_KU{KU}_KD{KD}.xlsx", index=False
             )
 
             print("\n📊 FULL VAL + TEST RESULTS FOR THIS KU/KD:")
@@ -1248,12 +1280,12 @@ def run_full_binary_pipeline(
             # ---------------------------------------------------------
             df_sorted = df_test_full.sort_values(
                 [
-                    "macro_f1_test",     # 1) main metric
-                    "tp_precision_test", # 2) quality
-                    "BSS_test",          # 3) calibration
-                    "macro_f1_gap"       # 4) stability
+                    "macro_f1_test",  # 1) main metric
+                    "tp_precision_test",  # 2) quality
+                    "BSS_test",  # 3) calibration
+                    "macro_f1_gap",  # 4) stability
                 ],
-                ascending=[False, False, False, True]
+                ascending=[False, False, False, True],
             )
 
             best_row = df_sorted.iloc[0]
@@ -1263,12 +1295,12 @@ def run_full_binary_pipeline(
             # ---------------------------------------------------------
             df_sorted = df_test_full.sort_values(
                 [
-                    "macro_f1_test",     # 1) main metric
-                    "tp_precision_test", # 2) quality
-                    "BSS_test",          # 3) calibration
-                    "macro_f1_gap"       # 4) stability
+                    "macro_f1_test",  # 1) main metric
+                    "tp_precision_test",  # 2) quality
+                    "BSS_test",  # 3) calibration
+                    "macro_f1_gap",  # 4) stability
                 ],
-                ascending=[False, False, False, True]
+                ascending=[False, False, False, True],
             )
 
             best_row = df_sorted.iloc[0]
@@ -1277,20 +1309,19 @@ def run_full_binary_pipeline(
                 "KU": KU,
                 "KD": KD,
                 "best_model": best_row["model"],
-
                 # --- METRICS (TEST) ---
                 "best_macro_f1_test": best_row["macro_f1_test"],
                 "best_precision_test": best_row["tp_precision_test"],
                 "best_recall_test": best_row["tp_recall_test"],
                 "best_BSS_test": best_row["BSS_test"],
-
                 # --- STABILITY ---
                 "stability_macro_gap": best_row["macro_f1_gap"],
-                "stability_precision_gap": abs(best_row["tp_precision_test"] - best_row["tp_precision_val"]),
+                "stability_precision_gap": abs(
+                    best_row["tp_precision_test"] - best_row["tp_precision_val"]
+                ),
                 "stability_bss_gap": abs(best_row["BSS_test"] - best_row["BSS_val"]),
-
                 # --- THRESHOLD (якщо є) ---
-                "threshold_used": best_row["threshold_used"]
+                "threshold_used": best_row["threshold_used"],
             }
 
             results.append(best_entry)
@@ -1338,8 +1369,8 @@ def dl_threshold_for_probs(proba, y_true, KU, KD, thresholds=None):
         )
 
         macro = m["macro_f1"]
-        prec  = m["tp_precision"]
-        bss   = m["bss"]
+        prec = m["tp_precision"]
+        bss = m["bss"]
 
         better = False
         if macro > best_macro:
@@ -1352,12 +1383,14 @@ def dl_threshold_for_probs(proba, y_true, KU, KD, thresholds=None):
 
         if better:
             best_macro = macro
-            best_prec  = prec
-            best_bss   = bss
-            best_thr   = thr
-            best_m     = m
+            best_prec = prec
+            best_bss = bss
+            best_thr = thr
+            best_m = m
 
     print(f"\n Best threshold = {best_thr:.3f}")
-    print(f"  macro_f1={best_macro:.5f}, tp_precision={best_prec:.5f}, BSS={best_bss:.5f}")
+    print(
+        f"  macro_f1={best_macro:.5f}, tp_precision={best_prec:.5f}, BSS={best_bss:.5f}"
+    )
 
     return best_thr, best_m

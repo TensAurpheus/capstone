@@ -25,7 +25,9 @@ def run_script(script, args=None):
     if args:
         cmd += args
     print(f"\nRunning: {' '.join(cmd)}")
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
 
     for line in process.stdout:
         print(line, end="")
@@ -48,11 +50,23 @@ def ask_step(prompt):
 
 def main():
     parser = argparse.ArgumentParser(description="Build full crypto dataset pipeline")
-    parser.add_argument("--symbol", type=str, required=True, help="Trading pair, e.g. BTC/USDT")
-    parser.add_argument("--market", type=str, choices=["spot", "futures"], default="futures", help="Market type")
-    parser.add_argument("--start", type=str, default="2020-01-01", help="Start date (UTC)")
+    parser.add_argument(
+        "--symbol", type=str, required=True, help="Trading pair, e.g. BTC/USDT"
+    )
+    parser.add_argument(
+        "--market",
+        type=str,
+        choices=["spot", "futures"],
+        default="futures",
+        help="Market type",
+    )
+    parser.add_argument(
+        "--start", type=str, default="2020-01-01", help="Start date (UTC)"
+    )
     parser.add_argument("--end", type=str, default="2025-01-01", help="End date (UTC)")
-    parser.add_argument("--timeframe", type=str, default="15m", help="Timeframe (e.g., 1m, 15m, 1h)")
+    parser.add_argument(
+        "--timeframe", type=str, default="15m", help="Timeframe (e.g., 1m, 15m, 1h)"
+    )
     args = parser.parse_args()
 
     # Ensure directories exist
@@ -67,68 +81,113 @@ def main():
 
     # 1️ Step: Fetch + raw data
     if ask_step("Run data_preprocess.py (fetch OHLCV and funding data)"):
-        if not run_script("src/data_pipeline/data/data_preprocess.py", [
-            "--symbol", args.symbol,
-            "--market", args.market,
-            "--start", args.start,
-            "--end", args.end,
-            "--timeframe", args.timeframe
-        ]):
+        if not run_script(
+            "src/data_pipeline/data/data_preprocess.py",
+            [
+                "--symbol",
+                args.symbol,
+                "--market",
+                args.market,
+                "--start",
+                args.start,
+                "--end",
+                args.end,
+                "--timeframe",
+                args.timeframe,
+            ],
+        ):
             return
 
     # Step 2: Cleaning / QA
     raw_path = f"data/raw/{symbol_clean}_{args.timeframe}_{args.market}_raw.parquet"
     if ask_step("Run preprocessing.py (cleanup + feature prep)"):
-        if not run_script("src/data_pipeline/data/preprocessing.py", [
-            "--input", raw_path,
-            "--output", f"data/processed/{symbol_clean}_{args.timeframe}_features.parquet"
-        ]):
+        if not run_script(
+            "src/data_pipeline/data/preprocessing.py",
+            [
+                "--input",
+                raw_path,
+                "--output",
+                f"data/processed/{symbol_clean}_{args.timeframe}_features.parquet",
+            ],
+        ):
             return
 
     # 3️ Step: Technical indicators
     if ask_step("Run technical.py (technical indicators)"):
-        if not run_script("src/data_pipeline/features/technical.py", [
-            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_features.parquet",
-            "--output", f"data/processed/{symbol_clean}_{args.timeframe}_technical.parquet"
-        ]):
+        if not run_script(
+            "src/data_pipeline/features/technical.py",
+            [
+                "--input",
+                f"data/processed/{symbol_clean}_{args.timeframe}_features.parquet",
+                "--output",
+                f"data/processed/{symbol_clean}_{args.timeframe}_technical.parquet",
+            ],
+        ):
             return
 
     # Step 4: Pattern-based features
     if ask_step("Run patterns.py (price-action patterns)"):
 
-        if not run_script("src/data_pipeline/features/patterns.py", [
-            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_technical.parquet",
-            "--output", f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet"
-        ]):
+        if not run_script(
+            "src/data_pipeline/features/patterns.py",
+            [
+                "--input",
+                f"data/processed/{symbol_clean}_{args.timeframe}_technical.parquet",
+                "--output",
+                f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet",
+            ],
+        ):
             return
-        
+
     # Step 5: Macro + Behavioral + On-chain Merge
-    if ask_step("Run macro_behavior_onchain.py (merge macro, fear&greed, onchain data)"):
-        if not run_script("src/data_pipeline/features/macro_behavior_onchain.py", [
-            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet",
-            "--output", f"data/processed/{symbol_clean}_{args.timeframe}_macro.parquet",
-            "--symbol", args.symbol,
-            "--start", args.start,
-            "--end", args.end
-        ]):
-            return        
+    if ask_step(
+        "Run macro_behavior_onchain.py (merge macro, fear&greed, onchain data)"
+    ):
+        if not run_script(
+            "src/data_pipeline/features/macro_behavior_onchain.py",
+            [
+                "--input",
+                f"data/processed/{symbol_clean}_{args.timeframe}_patterns.parquet",
+                "--output",
+                f"data/processed/{symbol_clean}_{args.timeframe}_macro.parquet",
+                "--symbol",
+                args.symbol,
+                "--start",
+                args.start,
+                "--end",
+                args.end,
+            ],
+        ):
+            return
 
     # Step 6: Normalization (ATR-based)
     if ask_step("Run normalize.py (ATR-based normalization)"):
-        if not run_script("src/data_pipeline/data/normalize.py", [
-            "--input", f"data/processed/{symbol_clean}_{args.timeframe}_macro.parquet",
-            "--output", f"data/processed/{symbol_clean}_{args.timeframe}_normalized.parquet",
-            "--symbol", args.symbol
-        ]):
+        if not run_script(
+            "src/data_pipeline/data/normalize.py",
+            [
+                "--input",
+                f"data/processed/{symbol_clean}_{args.timeframe}_macro.parquet",
+                "--output",
+                f"data/processed/{symbol_clean}_{args.timeframe}_normalized.parquet",
+                "--symbol",
+                args.symbol,
+            ],
+        ):
             return
 
     # Step 7: Final postprocessing
     if ask_step("Run data_postprocess.py (final cleanup + encoding)"):
-        if not run_script("src/data_pipeline/data/data_postprocess.py", [
-            "--symbol", args.symbol,
-            "--market", args.market,
-            "--timeframe", args.timeframe
-        ]):
+        if not run_script(
+            "src/data_pipeline/data/data_postprocess.py",
+            [
+                "--symbol",
+                args.symbol,
+                "--market",
+                args.market,
+                "--timeframe",
+                args.timeframe,
+            ],
+        ):
             return
 
     print("\n=== ✅ PIPELINE COMPLETED SUCCESSFULLY ===")

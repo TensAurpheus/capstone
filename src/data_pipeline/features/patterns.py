@@ -14,6 +14,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 # Try TA-Lib
 try:
     import talib
+
     HAS_TALIB = True
 except:
     HAS_TALIB = False
@@ -27,15 +28,28 @@ def detect_candlestick_patterns(df):
     print("[INFO] Detecting candlestick patterns...")
 
     if HAS_TALIB:
-        df["pattern_bullish_engulf"] = (talib.CDLENGULFING(df["open"], df["high"], df["low"], df["close"]) > 0)
-        df["pattern_bearish_engulf"] = (talib.CDLENGULFING(df["open"], df["high"], df["low"], df["close"]) < 0)
-        df["pattern_harami"] = talib.CDLHARAMI(df["open"], df["high"], df["low"], df["close"]) != 0
-        df["pattern_hammer"] = talib.CDLHAMMER(df["open"], df["high"], df["low"], df["close"]) != 0
-        df["pattern_inverted_hammer"] = talib.CDLINVERTEDHAMMER(df["open"], df["high"], df["low"], df["close"]) != 0
+        df["pattern_bullish_engulf"] = (
+            talib.CDLENGULFING(df["open"], df["high"], df["low"], df["close"]) > 0
+        )
+        df["pattern_bearish_engulf"] = (
+            talib.CDLENGULFING(df["open"], df["high"], df["low"], df["close"]) < 0
+        )
+        df["pattern_harami"] = (
+            talib.CDLHARAMI(df["open"], df["high"], df["low"], df["close"]) != 0
+        )
+        df["pattern_hammer"] = (
+            talib.CDLHAMMER(df["open"], df["high"], df["low"], df["close"]) != 0
+        )
+        df["pattern_inverted_hammer"] = (
+            talib.CDLINVERTEDHAMMER(df["open"], df["high"], df["low"], df["close"]) != 0
+        )
     else:
         for col in [
-            "pattern_bullish_engulf", "pattern_bearish_engulf",
-            "pattern_harami", "pattern_hammer", "pattern_inverted_hammer"
+            "pattern_bullish_engulf",
+            "pattern_bearish_engulf",
+            "pattern_harami",
+            "pattern_hammer",
+            "pattern_inverted_hammer",
         ]:
             df[col] = False
 
@@ -45,27 +59,27 @@ def detect_candlestick_patterns(df):
 # =====================================================================
 # B) ICT MARKET STRUCTURE (pivot → swing → BOS → CHoCH → MSS)
 # =====================================================================
-def apply_ict_market_structure(df):   # <<< NEW FUNCTION (extracted from generate_patterns)
+def apply_ict_market_structure(
+    df,
+):  # <<< NEW FUNCTION (extracted from generate_patterns)
     print("[INFO] Applying ICT market structure...")
 
     # ---------------------------------------------------------------
     # 1) TRUE CAUSAL PIVOTS
     # ---------------------------------------------------------------
     df["swing_high"] = (
-        (df["high"].shift(1) > df["high"].shift(2)) &
-        (df["high"].shift(1) > df["high"])
+        (df["high"].shift(1) > df["high"].shift(2)) & (df["high"].shift(1) > df["high"])
     ).fillna(False)
 
     df["swing_low"] = (
-        (df["low"].shift(1) < df["low"].shift(2)) &
-        (df["low"].shift(1) < df["low"])
+        (df["low"].shift(1) < df["low"].shift(2)) & (df["low"].shift(1) < df["low"])
     ).fillna(False)
 
     # ---------------------------------------------------------------
     # OPTIONAL IMPROVEMENT — clean leading garbage swings
     # ---------------------------------------------------------------  # <<< ADDED
     first_high = df["swing_high"].idxmax()
-    first_low  = df["swing_low"].idxmax()
+    first_low = df["swing_low"].idxmax()
     first_real = min(first_high, first_low)
     df.loc[:first_real, ["swing_high", "swing_low"]] = False
 
@@ -73,15 +87,15 @@ def apply_ict_market_structure(df):   # <<< NEW FUNCTION (extracted from generat
     # 2) PROTECTED SWINGS
     # ---------------------------------------------------------------
     df["last_swing_high"] = np.where(df["swing_high"], df["high"].shift(1), np.nan)
-    df["last_swing_low"]  = np.where(df["swing_low"],  df["low"].shift(1),  np.nan)
+    df["last_swing_low"] = np.where(df["swing_low"], df["low"].shift(1), np.nan)
 
     df["last_swing_high"] = df["last_swing_high"].ffill()
-    df["last_swing_low"]  = df["last_swing_low"].ffill()
+    df["last_swing_low"] = df["last_swing_low"].ffill()
 
     # ---------------------------------------------------------------
     # 3) BOS
     # ---------------------------------------------------------------
-    
+
     df["bos_bullish"] = (df["close"] > df["last_swing_high"].shift(1)).fillna(False)
     df["bos_bearish"] = (df["close"] < df["last_swing_low"].shift(1)).fillna(False)
 
@@ -108,7 +122,7 @@ def apply_ict_market_structure(df):   # <<< NEW FUNCTION (extracted from generat
     # 5) MSS — internal HH/LL
     # ---------------------------------------------------------------
     int_high = df["high"].rolling(5, min_periods=2).max()
-    int_low  = df["low"].rolling(5, min_periods=2).min()
+    int_low = df["low"].rolling(5, min_periods=2).min()
 
     df["mss_bullish"] = (df["close"] > int_high.shift(1)).fillna(False)
     df["mss_bearish"] = (df["close"] < int_low.shift(1)).fillna(False)
@@ -127,16 +141,16 @@ def detect_fvg(df):
     # causal version uses the same logic reversed in time
     # (your version is equivalent but slightly different ordering)
 
-    bullish = (df["low"].shift(2) > df["high"])
-    bearish = (df["high"].shift(2) < df["low"])
+    bullish = df["low"].shift(2) > df["high"]
+    bearish = df["high"].shift(2) < df["low"]
 
     gap = pd.Series(
         np.where(
             bullish,
             df["low"].shift(2) - df["high"],
-            np.where(bearish, df["high"] - df["low"].shift(2), 0)
+            np.where(bearish, df["high"] - df["low"].shift(2), 0),
         ),
-        index=df.index
+        index=df.index,
     )
 
     df["bullish_fvg"] = bullish.fillna(0).astype(int)
@@ -168,11 +182,15 @@ def detect_breakouts(df):
 
     vol_ma = df["volume"].rolling(10).mean()
 
-    rolling_high = df["high"].rolling(25).max()     
-    rolling_low  = df["low"].rolling(25).min()
+    rolling_high = df["high"].rolling(25).max()
+    rolling_low = df["low"].rolling(25).min()
 
-    df["breakout_bullish"] = (df["close"] > rolling_high.shift(1)) & (df["volume"] > vol_ma)
-    df["breakout_bearish"] = (df["close"] < rolling_low.shift(1)) & (df["volume"] > vol_ma)
+    df["breakout_bullish"] = (df["close"] > rolling_high.shift(1)) & (
+        df["volume"] > vol_ma
+    )
+    df["breakout_bearish"] = (df["close"] < rolling_low.shift(1)) & (
+        df["volume"] > vol_ma
+    )
 
     return df
 
@@ -196,16 +214,23 @@ def generate_patterns(df):
 
     # Convert booleans → ints
     pattern_cols = [
-        "pattern_bullish_engulf", "pattern_bearish_engulf",
-        "pattern_harami", "pattern_hammer", "pattern_inverted_hammer",
-
-        "swing_high", "swing_low",
-        "bos_bullish", "bos_bearish",
-        "choch_bullish", "choch_bearish",
-        "mss_bullish", "mss_bearish",
-
-        "bullish_fvg", "bearish_fvg",
-        "breakout_bullish", "breakout_bearish"
+        "pattern_bullish_engulf",
+        "pattern_bearish_engulf",
+        "pattern_harami",
+        "pattern_hammer",
+        "pattern_inverted_hammer",
+        "swing_high",
+        "swing_low",
+        "bos_bullish",
+        "bos_bearish",
+        "choch_bullish",
+        "choch_bearish",
+        "mss_bullish",
+        "mss_bearish",
+        "bullish_fvg",
+        "bearish_fvg",
+        "breakout_bullish",
+        "breakout_bearish",
     ]
 
     for c in pattern_cols:

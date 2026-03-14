@@ -18,16 +18,19 @@ import warnings
 import sys
 
 # --- Clean console output encoding ---
-sys.stdout.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding="utf-8")
 
 # --- Suppress unnecessary warnings ---
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
-warnings.filterwarnings("ignore", message="DataFrameGroupBy.apply operated on the grouping columns")
+warnings.filterwarnings(
+    "ignore", message="DataFrameGroupBy.apply operated on the grouping columns"
+)
 
 # --- Try importing pandas_ta ---
 try:
     import pandas_ta as pta
+
     HAS_PTA = True
 except ImportError:
     HAS_PTA = False
@@ -102,8 +105,12 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # === Volume-based ===
     if "volume" in df.columns:
         if HAS_PTA:
-            df["mfi_14"] = pta.mfi(df["high"], df["low"], df["close"], df["volume"], length=14)
-        df["z_volume"] = (df["volume"] - df["volume"].rolling(8).mean()) / df["volume"].rolling(8).std()
+            df["mfi_14"] = pta.mfi(
+                df["high"], df["low"], df["close"], df["volume"], length=14
+            )
+        df["z_volume"] = (df["volume"] - df["volume"].rolling(8).mean()) / df[
+            "volume"
+        ].rolling(8).std()
 
     # === VWAP and distance ===
     if HAS_PTA:
@@ -136,9 +143,11 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df["vwap_session"] = (
         df.groupby(["date", "session"])
-          .apply(lambda g: (price.loc[g.index] * g["volume"]).cumsum() /
-                           g["volume"].cumsum().replace(0, np.nan))
-          .droplevel([0, 1])
+        .apply(
+            lambda g: (price.loc[g.index] * g["volume"]).cumsum()
+            / g["volume"].cumsum().replace(0, np.nan)
+        )
+        .droplevel([0, 1])
     )
 
     # === CAUSAL Session Statistics (expanding) ===
@@ -146,15 +155,15 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     g = df.groupby(["date", "session"])
 
     df["session_vol_mean"] = (
-        g["volume"].expanding().mean().reset_index(level=[0,1], drop=True)
+        g["volume"].expanding().mean().reset_index(level=[0, 1], drop=True)
     )
 
     df["session_return_mean"] = (
-        g["log_return_1h"].expanding().mean().reset_index(level=[0,1], drop=True)
+        g["log_return_1h"].expanding().mean().reset_index(level=[0, 1], drop=True)
     )
 
     df["session_volatility"] = (
-        g["roll_std_4h"].expanding().mean().reset_index(level=[0,1], drop=True)
+        g["roll_std_4h"].expanding().mean().reset_index(level=[0, 1], drop=True)
     )
 
     df.drop(columns=["hour"], inplace=True, errors="ignore")
@@ -191,7 +200,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     fd_vals = [np.nan] * len(df)
 
     for i in range(fd_window, len(df)):
-        fd_vals[i] = higuchi_fd(close_vals[i - fd_window:i])
+        fd_vals[i] = higuchi_fd(close_vals[i - fd_window : i])
 
     df["fd_24"] = fd_vals
 
@@ -200,7 +209,6 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     print("[INFO] FD computed.")
 
-
     # ============================================================
     # === EMA smoothing ==========================================
     # ============================================================
@@ -208,18 +216,13 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["fd_ema_24"] = df["fd_24"].ewm(span=24, adjust=False, min_periods=24).mean()
     df["fd_trend_strength"] = df["fd_24"] - df["fd_ema_24"]
 
-
     # ============================================================
     # === Adaptive FD Regime (CAUSAL QUANTILE) ==================
     # ============================================================
 
     print("[INFO] Computing causal FD regime with expanding quantile...")
 
-    df["fd_threshold_causal"] = (
-        df["fd_ema_24"]
-        .expanding(min_periods=24)
-        .quantile(0.70)
-    )
+    df["fd_threshold_causal"] = df["fd_ema_24"].expanding(min_periods=24).quantile(0.70)
 
     df["fd_regime"] = (df["fd_ema_24"] >= df["fd_threshold_causal"]).astype(int)
 
@@ -228,7 +231,6 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     last_thr = df["fd_threshold_causal"].iloc[-1]
     print(f"[INFO] Latest causal FD regime threshold = {last_thr:.4f}")
-
 
     # ============================================================
     # === FD × Volatility interaction (using ATR-200) ============
@@ -243,24 +245,17 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # normalize slope by ATR (strong feature)
     df["fd_slope_atr_norm"] = df["fd_slope"] / atr
 
-
     # ============================================================
     # === FD Entropy (local FD uncertainty) =======================
     # ============================================================
 
-    df["fd_entropy"] = (
-        df["fd_slope"]
-        .rolling(24, min_periods=12)
-        .std()
-    )
-
+    df["fd_entropy"] = df["fd_slope"].rolling(24, min_periods=12).std()
 
     # ============================================================
     # === Volatility-adjusted FD (Fractal Market Hypothesis) =====
     # ============================================================
 
     df["fd_vol_adjusted"] = df["fd_24"] / (1 + df["atr_vol_regime"])
-
 
     # ============================================================
     # === Robust FD Normalization (MAD Z-score) ==================
@@ -285,16 +280,14 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     win = 24 * 10  # 10 days
     for col in fd_cols:
         if col in df.columns:
-            median = df[col].rolling(win, min_periods=win//2).median()
-            mad = (np.abs(df[col] - median)).rolling(win, min_periods=win//2).median()
+            median = df[col].rolling(win, min_periods=win // 2).median()
+            mad = (np.abs(df[col] - median)).rolling(win, min_periods=win // 2).median()
             mad = mad.replace(0, np.nan)
 
-            df[col + "_robust_z"] = (
-                (df[col] - median) / (1.4826 * mad)
-            ).clip(-5, 5)
+            df[col + "_robust_z"] = ((df[col] - median) / (1.4826 * mad)).clip(-5, 5)
 
     print("[OK] FD block enhanced and normalized.")
-    
+
     # === Daily & Weekly High/Low (CAUSAL: previous day/week) ============
     print("[INFO] Computing Daily and Weekly High/Low (previous)...")
 
@@ -324,11 +317,18 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["weekly_low"] = df["weekly_low"].ffill()
     return df
 
+
 # === CLI entrypoint ===
 def main():
-    parser = argparse.ArgumentParser(description="Add technical indicators and session-level stats to dataset.")
-    parser.add_argument("--input", type=str, required=True, help="Input parquet file path")
-    parser.add_argument("--output", type=str, required=True, help="Output parquet file path")
+    parser = argparse.ArgumentParser(
+        description="Add technical indicators and session-level stats to dataset."
+    )
+    parser.add_argument(
+        "--input", type=str, required=True, help="Input parquet file path"
+    )
+    parser.add_argument(
+        "--output", type=str, required=True, help="Output parquet file path"
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -342,7 +342,6 @@ def main():
     # Ensure timestamp column exists (parquet does not preserve index)
     if isinstance(df.index, pd.DatetimeIndex):
         df = df.reset_index().rename(columns={"index": "timestamp"})
-
 
     # === Save ===
     output_path.parent.mkdir(parents=True, exist_ok=True)

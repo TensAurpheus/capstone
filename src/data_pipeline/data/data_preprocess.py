@@ -20,20 +20,29 @@ import numpy as np
 import pandas as pd
 
 # Ensure UTF-8 output (especially for Windows)
-sys.stdout.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding="utf-8")
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 # ---------------- OHLCV ----------------
-def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
-                end_utc: pd.Timestamp, market_type: str) -> pd.DataFrame:
+def fetch_ohlcv(
+    symbol: str,
+    timeframe: str,
+    start_utc: pd.Timestamp,
+    end_utc: pd.Timestamp,
+    market_type: str,
+) -> pd.DataFrame:
     """Fetch OHLCV from Binance Spot or USDT-M Futures (ccxt)."""
 
     # Select correct exchange
     if market_type == "futures":
-        exchange = ccxt.binance({
-            "options": {"defaultType": "future"}  # ✅ more reliable for USDT-M futures
-        })
+        exchange = ccxt.binance(
+            {
+                "options": {
+                    "defaultType": "future"
+                }  # ✅ more reliable for USDT-M futures
+            }
+        )
     else:
         exchange = ccxt.binance()
 
@@ -56,7 +65,9 @@ def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
             exchange = ccxt.binanceusdm()
             exchange.load_markets()
             if symbol not in exchange.markets:
-                raise ValueError(f"Symbol {symbol} not found on Binance {market_type} even after retry.")
+                raise ValueError(
+                    f"Symbol {symbol} not found on Binance {market_type} even after retry."
+                )
 
     since_ms = int(start_utc.timestamp() * 1000)
     end_ms = int(end_utc.timestamp() * 1000)
@@ -67,7 +78,9 @@ def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
 
     all_rows = []
     while since_ms < end_ms:
-        candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=limit)
+        candles = exchange.fetch_ohlcv(
+            symbol, timeframe=timeframe, since=since_ms, limit=limit
+        )
         if not candles:
             break
         all_rows += candles
@@ -76,12 +89,13 @@ def fetch_ohlcv(symbol: str, timeframe: str, start_utc: pd.Timestamp,
             print(f"[INFO] Fetched {len(all_rows)} rows...")
         time.sleep(0.15)
 
-    df = pd.DataFrame(all_rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df = pd.DataFrame(
+        all_rows, columns=["timestamp", "open", "high", "low", "close", "volume"]
+    )
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     df = df[df["timestamp"] <= end_utc]
     print(f"[OK] OHLCV done: {len(df):,} rows")
     return df
-
 
 
 # ------------- FUNDING RATE -------------
@@ -102,7 +116,9 @@ def _call_funding_endpoint(exchange, params):
     raise AttributeError("No funding endpoint available in this ccxt version.")
 
 
-def fetch_funding_rate(symbol: str, start_utc: pd.Timestamp, end_utc: pd.Timestamp) -> pd.DataFrame:
+def fetch_funding_rate(
+    symbol: str, start_utc: pd.Timestamp, end_utc: pd.Timestamp
+) -> pd.DataFrame:
     """Fetch Binance USDT-M Futures funding rate (8h)."""
     exchange = ccxt.binanceusdm()
     exchange.load_markets()
@@ -142,19 +158,30 @@ def fetch_funding_rate(symbol: str, start_utc: pd.Timestamp, end_utc: pd.Timesta
         return pd.DataFrame(columns=["timestamp", "funding_rate"])
 
     df = pd.DataFrame(all_rows)
-    df["fundingTime"] = pd.to_datetime(pd.to_numeric(df["fundingTime"]), unit="ms", utc=True)
-    df.rename(columns={"fundingTime": "timestamp", "fundingRate": "funding_rate"}, inplace=True)
+    df["fundingTime"] = pd.to_datetime(
+        pd.to_numeric(df["fundingTime"]), unit="ms", utc=True
+    )
+    df.rename(
+        columns={"fundingTime": "timestamp", "fundingRate": "funding_rate"},
+        inplace=True,
+    )
     df["funding_rate"] = pd.to_numeric(df["funding_rate"], errors="coerce")
     print(f"[OK] Funding data done: {len(df):,} rows")
     return df[["timestamp", "funding_rate"]]
 
 
 # --------------- PREPROCESS ---------------
-def preprocess_data(df_ohlcv: pd.DataFrame, df_funding: pd.DataFrame, symbol: str) -> pd.DataFrame:
+def preprocess_data(
+    df_ohlcv: pd.DataFrame, df_funding: pd.DataFrame, symbol: str
+) -> pd.DataFrame:
     """Merge OHLCV with (optional) funding, basic QA."""
     print("[INFO] Preprocessing data...")
 
-    df_ohlcv = df_ohlcv.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+    df_ohlcv = (
+        df_ohlcv.drop_duplicates("timestamp")
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
 
     if df_funding is not None and not df_funding.empty:
         df_funding = df_funding.drop_duplicates("timestamp").sort_values("timestamp")
@@ -176,27 +203,49 @@ def preprocess_data(df_ohlcv: pd.DataFrame, df_funding: pd.DataFrame, symbol: st
 
 # ------------------- CLI -------------------
 def main():
-    parser = argparse.ArgumentParser(description="Fetch and preprocess Binance Spot/Futures data.")
-    parser.add_argument("--symbol", type=str, default="BTCUSDT", help="Pair, e.g. BTCUSDT")
-    parser.add_argument("--market", type=str, choices=["spot", "futures"], default="futures",
-                        help="Market type")
-    parser.add_argument("--start", type=str, default="2020-01-01", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", type=str, default="2025-01-01", help="End date (YYYY-MM-DD)")
+    parser = argparse.ArgumentParser(
+        description="Fetch and preprocess Binance Spot/Futures data."
+    )
+    parser.add_argument(
+        "--symbol", type=str, default="BTCUSDT", help="Pair, e.g. BTCUSDT"
+    )
+    parser.add_argument(
+        "--market",
+        type=str,
+        choices=["spot", "futures"],
+        default="futures",
+        help="Market type",
+    )
+    parser.add_argument(
+        "--start", type=str, default="2020-01-01", help="Start date (YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--end", type=str, default="2025-01-01", help="End date (YYYY-MM-DD)"
+    )
     parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe")
-    parser.add_argument("--outdir", type=str, default="data/raw", help="Output directory")
+    parser.add_argument(
+        "--outdir", type=str, default="data/raw", help="Output directory"
+    )
     args = parser.parse_args()
 
     start_utc = pd.to_datetime(args.start, utc=True)
     end_utc = pd.to_datetime(args.end, utc=True)
 
     df_ohlcv = fetch_ohlcv(args.symbol, args.timeframe, start_utc, end_utc, args.market)
-    df_funding = fetch_funding_rate(args.symbol, start_utc, end_utc) if args.market == "futures" else pd.DataFrame()
+    df_funding = (
+        fetch_funding_rate(args.symbol, start_utc, end_utc)
+        if args.market == "futures"
+        else pd.DataFrame()
+    )
 
     df_prep = preprocess_data(df_ohlcv, df_funding, args.symbol)
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    out_path = outdir / f"{args.symbol.replace('/', '_')}_{args.timeframe}_{args.market}_raw.parquet"
+    out_path = (
+        outdir
+        / f"{args.symbol.replace('/', '_')}_{args.timeframe}_{args.market}_raw.parquet"
+    )
     df_prep.to_parquet(out_path, index=False)
 
     print(f"[OK] Saved -> {out_path}")

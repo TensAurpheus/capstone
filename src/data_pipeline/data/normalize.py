@@ -30,16 +30,16 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
     # === SCALE-FREE TRANSFORMATIONS ======================
     # =====================================================
     mappings = {
-        "ema_20":      (df["close"] - df["ema_20"]) / atr,
-        "ema_50":      (df["close"] - df["ema_50"]) / atr,
-        "ema_200":     (df["close"] - df["ema_200"]) / atr,
+        "ema_20": (df["close"] - df["ema_20"]) / atr,
+        "ema_50": (df["close"] - df["ema_50"]) / atr,
+        "ema_200": (df["close"] - df["ema_200"]) / atr,
         "rolling_high": (df["rolling_high"] - df["close"]) / atr,
         "rolling_low": (df["close"] - df["rolling_low"]) / atr,
         "equilibrium": (df["close"] - df["equilibrium"]) / atr,
         "vwap_session": (df["close"] - df["vwap_session"]) / atr,
-        "vwap":         (df["close"] - df["vwap"]) / atr,
-        "volume":       np.log1p(df["volume"]),
-        "z_volume":     df["z_volume"],
+        "vwap": (df["close"] - df["vwap"]) / atr,
+        "volume": np.log1p(df["volume"]),
+        "z_volume": df["z_volume"],
     }
 
     for col, expr in mappings.items():
@@ -55,12 +55,14 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
     # === Distance to Daily/Weekly High/Low (ATR200 norm)
     # =====================================================
     df["dist_daily_high"] = (df["close"] - df["daily_high"]) / atr
-    df["dist_daily_low"]  = (df["daily_low"] - df["close"]) / atr
+    df["dist_daily_low"] = (df["daily_low"] - df["close"]) / atr
 
     df["dist_weekly_high"] = (df["close"] - df["weekly_high"]) / atr
-    df["dist_weekly_low"]  = (df["weekly_low"] - df["close"]) / atr
+    df["dist_weekly_low"] = (df["weekly_low"] - df["close"]) / atr
 
-    df.drop(columns=["daily_high", "daily_low", "weekly_high", "weekly_low"], inplace=True)
+    df.drop(
+        columns=["daily_high", "daily_low", "weekly_high", "weekly_low"], inplace=True
+    )
 
     # =====================================================
     # === FVG gap normalization ===========================
@@ -78,12 +80,11 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         win = 24 * 10
         eps = 1e-8
 
-        roll_mean = df["atr_vol_regime"].rolling(win, min_periods=win//2).mean()
-        roll_std  = df["atr_vol_regime"].rolling(win, min_periods=win//2).std()
+        roll_mean = df["atr_vol_regime"].rolling(win, min_periods=win // 2).mean()
+        roll_std = df["atr_vol_regime"].rolling(win, min_periods=win // 2).std()
 
         df["atr_vol_regime_z"] = (
-            (df["atr_vol_regime"] - roll_mean) /
-            roll_std.replace(0, eps)
+            (df["atr_vol_regime"] - roll_mean) / roll_std.replace(0, eps)
         ).clip(-5, 5)
 
     # =====================================================
@@ -108,8 +109,9 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
         bb_sigma = ((df["bb_bbh"] - df["bb_bbl"]) / (2 * k)).clip(lower=1e-12)
 
         df["bb_z"] = (df["close"] - df["bb_bbm"]) / bb_sigma
-        df["bb_percB"] = (df["close"] - df["bb_bbl"]) / \
-            (df["bb_bbh"] - df["bb_bbl"]).clip(lower=1e-12)
+        df["bb_percB"] = (df["close"] - df["bb_bbl"]) / (
+            df["bb_bbh"] - df["bb_bbl"]
+        ).clip(lower=1e-12)
 
         df.drop(columns=["bb_bbm", "bb_bbh", "bb_bbl", "atr_14"], inplace=True)
         print("[INFO] Replaced BB values with bb_z and %B.")
@@ -129,11 +131,23 @@ def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
     print("[OK] Scale-free normalization complete.\n")
     return df
 
+
 def main():
-    parser = argparse.ArgumentParser(description="ATR-based normalization for ML models")
-    parser.add_argument("--input", type=str, required=True, help="Input .parquet file (after patterns.py)")
-    parser.add_argument("--output", type=str, required=True, help="Output .parquet file")
-    parser.add_argument("--symbol", type=str, required=True, help="Symbol name (e.g. BTC/USDT)")
+    parser = argparse.ArgumentParser(
+        description="ATR-based normalization for ML models"
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        required=True,
+        help="Input .parquet file (after patterns.py)",
+    )
+    parser.add_argument(
+        "--output", type=str, required=True, help="Output .parquet file"
+    )
+    parser.add_argument(
+        "--symbol", type=str, required=True, help="Symbol name (e.g. BTC/USDT)"
+    )
     args = parser.parse_args()
 
     print(f"\n[INFO] Loading dataset -> {args.input}")
@@ -151,7 +165,6 @@ def main():
         print(f"[OK] Excel draft saved to {excel_draft}")
     except Exception as e:
         print(f"[WARN] Could not save Excel draft file: {e}")
-        
 
     df = normalize_features(df)
 

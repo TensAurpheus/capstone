@@ -26,21 +26,28 @@ def prepare_dataframe_for_model(df: pd.DataFrame) -> pd.DataFrame:
     # --- Timestamp handling ---
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+        df = (
+            df.dropna(subset=["timestamp"])
+            .sort_values("timestamp")
+            .reset_index(drop=True)
+        )
 
         # --- Safety checks ---
-        assert df["timestamp"].is_monotonic_increasing, \
+        assert df[
+            "timestamp"
+        ].is_monotonic_increasing, (
             "❌ Timestamp is not strictly sorted! Pipeline order corrupted."
+        )
 
-        assert not df["timestamp"].duplicated().any(), \
-            "❌ Duplicate timestamps detected! Data integrity issue."
+        assert (
+            not df["timestamp"].duplicated().any()
+        ), "❌ Duplicate timestamps detected! Data integrity issue."
 
         df["hour_sin"] = np.sin(2 * np.pi * df["timestamp"].dt.hour / 24)
         df["hour_cos"] = np.cos(2 * np.pi * df["timestamp"].dt.hour / 24)
         df["dayofweek_sin"] = np.sin(2 * np.pi * df["timestamp"].dt.dayofweek / 7)
         df["dayofweek_cos"] = np.cos(2 * np.pi * df["timestamp"].dt.dayofweek / 7)
         df.drop(columns=["timestamp"], inplace=True)
-
 
     # --- One-hot encode categorical columns ---
     for col in ["session", "pda"]:
@@ -80,9 +87,13 @@ def main():
     symbol_clean = args.symbol.replace("/", "_")
 
     # --- Load normalized dataset ---
-    normalized_path = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_normalized.parquet"
+    normalized_path = (
+        Path("data/processed") / f"{symbol_clean}_{args.timeframe}_normalized.parquet"
+    )
     if not normalized_path.exists():
-        print(f"[ERROR] Normalized dataset not found at {normalized_path}. Run normalize.py first!")
+        print(
+            f"[ERROR] Normalized dataset not found at {normalized_path}. Run normalize.py first!"
+        )
         sys.exit(1)
 
     print(f"[INFO] Loading {normalized_path}")
@@ -92,7 +103,10 @@ def main():
     df = prepare_dataframe_for_model(df)
 
     # --- Save final dataset ---
-    final_path = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_{args.market}.parquet"
+    final_path = (
+        Path("data/processed")
+        / f"{symbol_clean}_{args.timeframe}_{args.market}.parquet"
+    )
     os.makedirs(final_path.parent, exist_ok=True)
     df.to_parquet(final_path, index=False)
 
@@ -118,9 +132,12 @@ def main():
     # --- Remove intermediate parquet files ---
     stages = ["features", "technical", "patterns", "macro", "normalized"]
     for stage in stages:
-        temp_file = Path("data/processed") / f"{symbol_clean}_{args.timeframe}_{stage}.parquet"
+        temp_file = (
+            Path("data/processed") / f"{symbol_clean}_{args.timeframe}_{stage}.parquet"
+        )
         if temp_file.exists() and temp_file != final_path:
             temp_file.unlink()
+
 
 if __name__ == "__main__":
     main()
