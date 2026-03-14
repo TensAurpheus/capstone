@@ -2,9 +2,6 @@
 
 This repository contains the research, models, and backtesting framework developed for the Master of Science in Computer Science capstone project (December 2025). The focus is on a deep learning and machine learning based hybrid trading strategy for BTC/USDT futures.
 
-**Authors**: Artem Rudyi, Yana Mudruk  
-**Supervisor**: PhD (Phys.-Math.) T.O. Filimonova  
-
 ## Project Overview
 
 ### Motivation & Problem Statement
